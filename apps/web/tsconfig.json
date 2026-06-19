@@ -1,0 +1,19 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "ignoreDeprecations": "6.0",
+    "baseUrl": ".",
+    "types": ["vite/client"],
+    "paths": {
+      "@/*": ["./src/*"],
+      "@components/*": ["./src/components/*"],
+      "@shared/types": ["../../packages/shared-types/src"],
+      "@shared/ui": ["../../packages/shared-ui/src"],
+      "@rh/core": ["../../packages/rh-core/src"],
+      "@erp/shared-types": ["../../packages/shared-types/src"],
+      "@erp/shared-ui": ["../../packages/shared-ui/src"],
+      "@erp/rh-core": ["../../packages/rh-core/src"]
+    }
+  },
+  "include": ["src", "vite.config.ts"]
+}

@@ -1,0 +1,16 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "lib": ["ES2022"],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "types": ["node"],
+    "ignoreDeprecations": "6.0",
+    "baseUrl": ".",
+    "paths": {
+      "@erp/shared-types": ["../../packages/shared-types/src"],
+      "@erp/rh-core": ["../../packages/rh-core/src"]
+    }
+  },
+  "include": ["src"]
+}

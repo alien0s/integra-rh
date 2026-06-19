@@ -1,0 +1,24 @@
+{
+  "name": "erp-aceam",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.28.2",
+  "scripts": {
+    "dev": "turbo dev --parallel",
+    "build": "turbo build",
+    "build:web": "turbo build --filter=@erp/web",
+    "build:api": "turbo build --filter=@erp/api",
+    "type-check": "turbo type-check",
+    "lint": "eslint . --ext .ts,.tsx"
+  },
+  "devDependencies": {
+    "@typescript-eslint/eslint-plugin": "^7.18.0",
+    "@typescript-eslint/parser": "^7.18.0",
+    "eslint": "^8.57.1",
+    "eslint-plugin-react-hooks": "^4.6.2",
+    "eslint-plugin-react-refresh": "^0.4.14",
+    "turbo": "^2.3.3",
+    "typescript": "^6.0.0"
+  }
+}
