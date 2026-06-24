@@ -21,6 +21,12 @@ export interface ApiConfig {
     supabaseAnonKey: string;
     supabaseServiceKey: string;
   };
+  microsoft: {
+    clientId: string;
+    clientSecret: string;
+    tenantId: string;
+    redirectUri: string;
+  };
 }
 
 function readEnv(name: string, fallback = "") {
@@ -60,6 +66,15 @@ export function getApiConfig(): ApiConfig {
       supabaseUrl: readEnv("SUPABASE_URL"),
       supabaseAnonKey: readEnv("SUPABASE_ANON_KEY"),
       supabaseServiceKey: readEnv("SUPABASE_SERVICE_KEY")
+    },
+    microsoft: {
+      clientId: readEnv("MICROSOFT_CLIENT_ID"),
+      clientSecret: readEnv("MICROSOFT_CLIENT_SECRET"),
+      tenantId: readEnv("MICROSOFT_TENANT_ID", "common"),
+      redirectUri: readEnv(
+        "MICROSOFT_REDIRECT_URI",
+        "http://localhost:3000/auth/microsoft/callback"
+      )
     }
   };
 }

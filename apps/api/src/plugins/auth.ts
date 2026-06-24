@@ -1,4 +1,5 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import fp from "fastify-plugin";
 
 import { verifyAuthToken } from "../lib/jwt.js";
 
@@ -14,8 +15,11 @@ function readBearerToken(request: FastifyRequest) {
 
 /**
  * Registra o middleware de autenticação JWT da API.
+ *
+ * Usa fastify-plugin para que o decorator `authenticate` não fique
+ * encapsulado e esteja disponível para os plugins/rotas irmãos.
  */
-export async function authPlugin(app: FastifyInstance) {
+export const authPlugin = fp(async (app: FastifyInstance) => {
   app.decorate(
     "authenticate",
     async (request: FastifyRequest, reply: FastifyReply) => {
@@ -33,4 +37,4 @@ export async function authPlugin(app: FastifyInstance) {
       }
     }
   );
-}
+});
