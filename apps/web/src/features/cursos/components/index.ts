@@ -1,6 +1,6 @@
 export { CursosHeaderActions } from './CursosHeaderActions'
-export { CursosLoadingState } from './CursosLoadingState'
 export { CursosOverview } from './CursosOverview'
+export { CursosSkeleton } from './CursosSkeleton'
 export { CursosStatsCards } from './CursosStatsCards'
 export { FormacaoAcademica } from './FormacaoAcademica'
 export { NewGraduacaoModal } from './NewGraduacaoModal'

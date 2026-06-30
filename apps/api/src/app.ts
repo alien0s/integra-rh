@@ -3,7 +3,7 @@ import cors from "@fastify/cors";
 import helmet from "@fastify/helmet";
 import Fastify from "fastify";
 
-import { runMigrations } from "./lib/database.js";
+import { checkDatabaseConnection } from "./lib/database.js";
 import { authPlugin } from "./plugins/auth.js";
 import { getApiConfig } from "./plugins/env.js";
 import { microsoftOAuthPlugin } from "./plugins/microsoft-oauth.js";
@@ -26,18 +26,20 @@ export function buildApp() {
   app.register(cookie);
 
   app.addHook("onReady", async () => {
-    if (!config.database.url) {
-      app.log.warn("DATABASE_URL não configurado — migrações ignoradas");
+    if (!config.database.name) {
+      app.log.warn("DB_NAME não configurado — conexão com o banco ignorada");
       return;
     }
 
     try {
-      await runMigrations();
-      app.log.info("Migrações do banco aplicadas com sucesso");
+      await checkDatabaseConnection();
+      app.log.info(
+        `PostgreSQL conectado em ${config.database.host}:${config.database.port}/${config.database.name}`
+      );
     } catch (error) {
       app.log.warn(
         { error },
-        "Não foi possível conectar ao PostgreSQL — migrações ignoradas. " +
+        "Não foi possível conectar ao PostgreSQL. " +
           "O login Microsoft (SSO) não funcionará até o banco estar disponível."
       );
     }

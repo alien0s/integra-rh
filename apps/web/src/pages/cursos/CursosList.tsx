@@ -1,7 +1,7 @@
 import { AppLayout } from '@/features/app/components/AppLayout'
 import {
-  CursosLoadingState,
   CursosOverview,
+  CursosSkeleton,
 } from '@/features/cursos/components'
 import { useCursos } from '@/features/cursos/hooks'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -31,7 +31,7 @@ export function CursosList() {
           </TabsList>
         }
       >
-        {isLoading || !data ? <CursosLoadingState /> : <CursosOverview data={data} />}
+        {isLoading || !data ? <CursosSkeleton /> : <CursosOverview data={data} />}
       </AppLayout>
     </Tabs>
   )

@@ -2,6 +2,14 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import fp from "fastify-plugin";
 
 import { verifyAuthToken } from "../lib/jwt.js";
+import { getApiConfig } from "./env.js";
+import type { AuthUser } from "../types/auth.js";
+
+const DEV_USER: AuthUser = {
+  id: "dev",
+  email: "dev@adventistas.org",
+  nome: "Usuário Dev (auth desativada)"
+};
 
 function readBearerToken(request: FastifyRequest) {
   const authorization = request.headers.authorization;
@@ -23,6 +31,12 @@ export const authPlugin = fp(async (app: FastifyInstance) => {
   app.decorate(
     "authenticate",
     async (request: FastifyRequest, reply: FastifyReply) => {
+      // Auth desativada (modo dev): libera com um usuário fictício.
+      if (!getApiConfig().authEnabled) {
+        request.user = DEV_USER;
+        return;
+      }
+
       const token = readBearerToken(request);
 
       if (!token) {

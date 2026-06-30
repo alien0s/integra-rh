@@ -10,6 +10,7 @@ import {
   Home,
   Map,
   MoreHorizontal,
+  Palmtree,
   PieChart,
   Settings,
   UsersRound,
@@ -51,6 +52,11 @@ const sidebarData = {
       title: "Cursos e qualificações",
       url: "/cursos",
       icon: GraduationCap,
+    },
+    {
+      title: "Férias",
+      url: "/ferias",
+      icon: Palmtree,
     },
     {
       title: "Folha",

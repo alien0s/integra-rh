@@ -1,0 +1,1 @@
+export { feriasService } from './feriasService'

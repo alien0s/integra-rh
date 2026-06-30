@@ -1,4 +1,3 @@
-import { useEffect, useState } from "react"
 import { Link } from "react-router-dom"
 import {
   BadgeCheck,
@@ -12,6 +11,7 @@ import {
   Sun,
 } from "lucide-react"
 
+import { useTheme } from "@/components/theme-provider"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import {
   DropdownMenu,
@@ -47,52 +47,7 @@ export function NavUser({ user }: NavUserProps) {
   const { isMobile } = useSidebar()
   const avatarUrl = user.avatar || undefined
 
-  const [theme, setTheme] = useState<"system" | "light" | "dark">("system")
-
-  useEffect(() => {
-    const stored = window.localStorage.getItem("theme")
-
-    if (stored === "system" || stored === "light" || stored === "dark") {
-      setTheme(stored)
-    }
-
-    const mql = window.matchMedia?.("(prefers-color-scheme: dark)")
-
-    const applyTheme = () => {
-      const resolved =
-        (window.localStorage.getItem("theme") as "system" | "light" | "dark" | null) ?? "system"
-      const next =
-        resolved !== "system"
-          ? resolved
-          : mql?.matches
-            ? "dark"
-            : "light"
-
-      document.documentElement.classList.toggle("dark", next === "dark")
-    }
-
-    applyTheme()
-
-    const onChange = () => {
-      const current = window.localStorage.getItem("theme")
-      if (current === "system") applyTheme()
-    }
-
-    mql?.addEventListener?.("change", onChange)
-
-    return () => {
-      mql?.removeEventListener?.("change", onChange)
-    }
-  }, [])
-
-  useEffect(() => {
-    window.localStorage.setItem("theme", theme)
-
-    const mql = window.matchMedia?.("(prefers-color-scheme: dark)")
-    const next = theme !== "system" ? theme : mql?.matches ? "dark" : "light"
-
-    document.documentElement.classList.toggle("dark", next === "dark")
-  }, [theme])
+  const { theme, setTheme } = useTheme()
 
   return (
     <SidebarMenu>

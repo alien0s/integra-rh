@@ -3,6 +3,8 @@ export interface ApiConfig {
   host: string;
   port: number;
   frontendUrl: string;
+  // Quando false, a autenticação é ignorada (modo desenvolvimento).
+  authEnabled: boolean;
   jwt: {
     secret: string;
     expiresIn: string;
@@ -16,10 +18,11 @@ export interface ApiConfig {
     searchFilter: string;
   };
   database: {
-    url: string;
-    supabaseUrl: string;
-    supabaseAnonKey: string;
-    supabaseServiceKey: string;
+    host: string;
+    port: number;
+    name: string;
+    user: string;
+    password: string;
   };
   microsoft: {
     clientId: string;
@@ -49,6 +52,7 @@ export function getApiConfig(): ApiConfig {
     host: readEnv("HOST", "0.0.0.0"),
     port: Number(readEnv("PORT", "3000")),
     frontendUrl: readEnv("FRONTEND_URL", "http://localhost:5173"),
+    authEnabled: readBooleanEnv("AUTH_ENABLED", true),
     jwt: {
       secret: readEnv("JWT_SECRET", "change-me-in-env"),
       expiresIn: readEnv("JWT_EXPIRES_IN", "1h")
@@ -62,10 +66,11 @@ export function getApiConfig(): ApiConfig {
       searchFilter: readEnv("LDAP_SEARCH_FILTER", "(mail={{email}})")
     },
     database: {
-      url: readEnv("DATABASE_URL"),
-      supabaseUrl: readEnv("SUPABASE_URL"),
-      supabaseAnonKey: readEnv("SUPABASE_ANON_KEY"),
-      supabaseServiceKey: readEnv("SUPABASE_SERVICE_KEY")
+      host: readEnv("DB_HOST", "localhost"),
+      port: Number(readEnv("DB_PORT", "5432")),
+      name: readEnv("DB_NAME"),
+      user: readEnv("DB_USER"),
+      password: readEnv("DB_PASSWORD")
     },
     microsoft: {
       clientId: readEnv("MICROSOFT_CLIENT_ID"),
