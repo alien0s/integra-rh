@@ -2,7 +2,7 @@ import { Grid2x2Check, Users } from 'lucide-react'
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { AppLayout } from '@/features/app/components'
-import { FeriasOverview } from '@/features/ferias/components'
+import { FeriasOverview, FeriasPessoal } from '@/features/ferias/components'
 import { useFerias } from '@/features/ferias/hooks'
 
 /**
@@ -37,7 +37,9 @@ export function FeriasList() {
           />
         </TabsContent>
 
-        <TabsContent value="pessoal" />
+        <TabsContent value="pessoal">
+          <FeriasPessoal />
+        </TabsContent>
       </AppLayout>
     </Tabs>
   )

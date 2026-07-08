@@ -1,13 +1,11 @@
 import { Link } from "react-router-dom"
 import {
-  BadgeCheck,
   Bell,
   ChevronsUpDown,
-  CreditCard,
   LogOut,
   Monitor,
   Moon,
-  Sparkles,
+  Settings,
   Sun,
 } from "lucide-react"
 
@@ -118,20 +116,11 @@ export function NavUser({ user }: NavUserProps) {
             <DropdownMenuSeparator />
 
             <DropdownMenuGroup>
-              <DropdownMenuItem>
-                <Sparkles />
-                Plano do ERP
-              </DropdownMenuItem>
-            </DropdownMenuGroup>
-            <DropdownMenuSeparator />
-            <DropdownMenuGroup>
-              <DropdownMenuItem>
-                <BadgeCheck />
-                Conta
-              </DropdownMenuItem>
-              <DropdownMenuItem>
-                <CreditCard />
-                Assinatura
+              <DropdownMenuItem asChild>
+                <Link to="/configuracoes">
+                  <Settings />
+                  Configurações
+                </Link>
               </DropdownMenuItem>
               <DropdownMenuItem>
                 <Bell />
@@ -139,7 +128,10 @@ export function NavUser({ user }: NavUserProps) {
               </DropdownMenuItem>
             </DropdownMenuGroup>
             <DropdownMenuSeparator />
-            <DropdownMenuItem asChild>
+            <DropdownMenuItem
+              asChild
+              className="text-red-600 focus:text-red-600 dark:text-red-400 dark:focus:text-red-400"
+            >
               <Link to="/login">
                 <LogOut />
                 Sair

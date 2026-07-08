@@ -75,7 +75,7 @@ const sidebarData = {
     },
     {
       title: "Configurações",
-      url: "#",
+      url: "/configuracoes",
       icon: Settings,
     },
     {
@@ -125,7 +125,7 @@ export function AppSidebar(props: ComponentProps<typeof Sidebar>) {
     >
       <SidebarHeader>
         <div className="group/sidebar-logo relative flex items-center">
-          <AppLogo className="[&_[data-slot=app-logo-icon]]:transition-opacity [&_[data-slot=app-logo-icon]]:duration-200 group-hover/sidebar-logo:[&_[data-slot=app-logo-icon]]:opacity-0" />
+          <AppLogo className="[&_[data-slot=app-logo-label]]:font-bold [&_[data-slot=app-logo-label]]:text-neutral-700 dark:[&_[data-slot=app-logo-label]]:text-neutral-200 [&_[data-slot=app-logo-icon]]:transition-opacity [&_[data-slot=app-logo-icon]]:duration-200 group-hover/sidebar-logo:[&_[data-slot=app-logo-icon]]:opacity-0" />
           <Tooltip className="absolute left-0 top-1/2 size-8 -translate-y-1/2 opacity-0 transition-opacity duration-200 group-hover/sidebar-logo:opacity-100">
             <TooltipTrigger asChild>
               <SidebarTrigger className="h-full w-full [&_svg]:size-5" />
@@ -136,7 +136,7 @@ export function AppSidebar(props: ComponentProps<typeof Sidebar>) {
           </Tooltip>
         </div>
       </SidebarHeader>
-      <SidebarContent>
+      <SidebarContent className="group-data-[collapsible=icon]/sidebar:overflow-visible">
         <NavMain items={sidebarData.navMain} />
       </SidebarContent>
       <SidebarFooter>

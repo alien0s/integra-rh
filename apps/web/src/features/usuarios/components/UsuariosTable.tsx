@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 
-import { ChevronDown } from 'lucide-react'
+import { ChevronDown, Ellipsis, Pencil, Trash2 } from 'lucide-react'
 
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
@@ -10,6 +10,8 @@ import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
   DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import {
@@ -26,6 +28,7 @@ interface UsuariosTableProps {
   data: Usuario[]
   visibleColumns: UsuarioTableColumn[]
   onSelectUsuario?: (usuarioId: string) => void
+  onEditarUsuario?: (usuario: Usuario) => void
 }
 
 const statusClassName = {
@@ -42,10 +45,12 @@ export function UsuariosTable({
   data,
   visibleColumns,
   onSelectUsuario,
+  onEditarUsuario,
 }: UsuariosTableProps) {
   const [selectedDepartamentos, setSelectedDepartamentos] = useState<string[]>(
     []
   )
+  const [selectedFuncoes, setSelectedFuncoes] = useState<string[]>([])
 
   const allDepartamentos = useMemo(
     () =>
@@ -53,17 +58,34 @@ export function UsuariosTable({
     [data]
   )
 
+  const allFuncoes = useMemo(
+    () => [...new Set(data.map((u) => u.funcao).filter(Boolean))].sort(),
+    [data]
+  )
+
   const filteredData = useMemo(
     () =>
-      selectedDepartamentos.length === 0
-        ? data
-        : data.filter((u) => selectedDepartamentos.includes(u.departamento)),
-    [data, selectedDepartamentos]
+      data.filter(
+        (u) =>
+          (selectedDepartamentos.length === 0 ||
+            selectedDepartamentos.includes(u.departamento)) &&
+          (selectedFuncoes.length === 0 || selectedFuncoes.includes(u.funcao))
+      ),
+    [data, selectedDepartamentos, selectedFuncoes]
   )
+
+  const hasActiveFilters =
+    selectedDepartamentos.length > 0 || selectedFuncoes.length > 0
 
   function handleDepartamentoToggle(dep: string, checked: boolean) {
     setSelectedDepartamentos((prev) =>
       checked ? [...prev, dep] : prev.filter((d) => d !== dep)
+    )
+  }
+
+  function handleFuncaoToggle(funcao: string, checked: boolean) {
+    setSelectedFuncoes((prev) =>
+      checked ? [...prev, funcao] : prev.filter((f) => f !== funcao)
     )
   }
 
@@ -87,7 +109,40 @@ export function UsuariosTable({
                     <TableHead className="h-11">E-mail</TableHead>
                   ) : null}
                   {isColumnVisible('funcao') ? (
-                    <TableHead className="h-11">Função</TableHead>
+                    <TableHead className="h-11">
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-auto gap-1 p-0 font-medium text-foreground hover:bg-transparent focus-visible:ring-0"
+                          >
+                            Função
+                            {selectedFuncoes.length > 0 && (
+                              <span className="flex h-4 w-4 items-center justify-center rounded-full bg-primary text-[10px] font-semibold text-primary-foreground">
+                                {selectedFuncoes.length}
+                              </span>
+                            )}
+                            <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="start" className="w-48">
+                          {allFuncoes.map((funcao) => (
+                            <DropdownMenuCheckboxItem
+                              key={funcao}
+                              checked={selectedFuncoes.includes(funcao)}
+                              onCheckedChange={(checked) =>
+                                handleFuncaoToggle(funcao, checked === true)
+                              }
+                              onSelect={(e) => e.preventDefault()}
+                              className="h-9"
+                            >
+                              {funcao}
+                            </DropdownMenuCheckboxItem>
+                          ))}
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </TableHead>
                   ) : null}
                   {isColumnVisible('departamento') ? (
                     <TableHead className="h-11">
@@ -126,8 +181,9 @@ export function UsuariosTable({
                     </TableHead>
                   ) : null}
                   {isColumnVisible('status') ? (
-                    <TableHead className="h-11 w-36 pr-6">Status</TableHead>
+                    <TableHead className="h-11 w-36">Status</TableHead>
                   ) : null}
+                  <TableHead className="h-11 w-12 pr-6" />
                 </>
               ) : (
                 <TableHead className="h-11 px-6">Colunas</TableHead>
@@ -195,7 +251,7 @@ export function UsuariosTable({
                   ) : null}
 
                   {isColumnVisible('status') ? (
-                    <TableCell className="pr-6">
+                    <TableCell>
                       <Badge
                         variant="outline"
                         className={`min-w-16 justify-center rounded-lg px-2 py-1 text-xs font-medium shadow-none ${statusClassName[usuario.status]}`}
@@ -204,16 +260,47 @@ export function UsuariosTable({
                       </Badge>
                     </TableCell>
                   ) : null}
+
+                  <TableCell
+                    className="w-12 pr-6 text-right"
+                    onClick={(event) => event.stopPropagation()}
+                  >
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          className="text-muted-foreground"
+                          aria-label="Ações"
+                        >
+                          <Ellipsis className="h-4 w-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" className="w-40">
+                        <DropdownMenuItem
+                          onSelect={() => onEditarUsuario?.(usuario)}
+                        >
+                          <Pencil className="h-4 w-4" />
+                          Editar
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem className="text-red-600 focus:text-red-600 dark:text-red-400 dark:focus:text-red-400">
+                          <Trash2 className="h-4 w-4" />
+                          Excluir
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </TableCell>
                 </TableRow>
               ))
             ) : (
               <TableRow>
                 <TableCell
-                  colSpan={activeColumnCount}
+                  colSpan={activeColumnCount + 1}
                   className="h-24 text-center text-sm text-muted-foreground"
                 >
-                  {selectedDepartamentos.length > 0
-                    ? 'Nenhum usuário no departamento selecionado.'
+                  {hasActiveFilters
+                    ? 'Nenhum usuário para os filtros selecionados.'
                     : 'Nenhum usuário encontrado.'}
                 </TableCell>
               </TableRow>

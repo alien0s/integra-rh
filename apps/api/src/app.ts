@@ -1,9 +1,11 @@
 import cookie from "@fastify/cookie";
 import cors from "@fastify/cors";
 import helmet from "@fastify/helmet";
+import multipart from "@fastify/multipart";
 import Fastify from "fastify";
 
 import { checkDatabaseConnection } from "./lib/database.js";
+import { ensureBucket } from "./lib/storage.js";
 import { authPlugin } from "./plugins/auth.js";
 import { getApiConfig } from "./plugins/env.js";
 import { microsoftOAuthPlugin } from "./plugins/microsoft-oauth.js";
@@ -11,6 +13,8 @@ import { authRoutes } from "./routes/auth.routes.js";
 import { folhasRoutes } from "./routes/folhas.routes.js";
 import { funcionariosRoutes } from "./routes/funcionarios.routes.js";
 import { healthRoutes } from "./routes/health.routes.js";
+import { uploadsRoutes } from "./routes/uploads.routes.js";
+import { usuariosRoutes } from "./routes/usuarios.routes.js";
 
 export function buildApp() {
   const config = getApiConfig();
@@ -24,24 +28,40 @@ export function buildApp() {
   });
   app.register(helmet);
   app.register(cookie);
+  app.register(multipart, {
+    limits: { fileSize: 5 * 1024 * 1024 } // 5 MB por arquivo
+  });
 
   app.addHook("onReady", async () => {
     if (!config.database.name) {
       app.log.warn("DB_NAME não configurado — conexão com o banco ignorada");
-      return;
+    } else {
+      try {
+        await checkDatabaseConnection();
+        app.log.info(
+          `PostgreSQL conectado em ${config.database.host}:${config.database.port}/${config.database.name}`
+        );
+      } catch (error) {
+        app.log.warn(
+          { error },
+          "Não foi possível conectar ao PostgreSQL. " +
+            "O login Microsoft (SSO) não funcionará até o banco estar disponível."
+        );
+      }
     }
 
-    try {
-      await checkDatabaseConnection();
-      app.log.info(
-        `PostgreSQL conectado em ${config.database.host}:${config.database.port}/${config.database.name}`
-      );
-    } catch (error) {
-      app.log.warn(
-        { error },
-        "Não foi possível conectar ao PostgreSQL. " +
-          "O login Microsoft (SSO) não funcionará até o banco estar disponível."
-      );
+    if (!config.storage.accessKey) {
+      app.log.warn("S3_ACCESS_KEY não configurado — storage (MinIO) ignorado");
+    } else {
+      try {
+        await ensureBucket();
+        app.log.info(`Storage pronto — bucket "${config.storage.bucket}"`);
+      } catch (error) {
+        app.log.warn(
+          { error },
+          "Não foi possível conectar ao storage (MinIO/S3). Uploads ficarão indisponíveis."
+        );
+      }
     }
   });
 
@@ -56,6 +76,8 @@ export function buildApp() {
   app.register(authRoutes);
   app.register(funcionariosRoutes);
   app.register(folhasRoutes);
+  app.register(usuariosRoutes);
+  app.register(uploadsRoutes);
 
   return app;
 }

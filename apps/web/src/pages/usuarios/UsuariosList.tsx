@@ -3,11 +3,18 @@ import { useNavigate } from 'react-router-dom'
 
 import { AppLayout } from '@/features/app/components/AppLayout'
 import {
+  EditarUsuarioModal,
+  UsuariosGrid,
   UsuariosTable,
   UsuariosTableActions,
 } from '@/features/usuarios/components'
-import { usuarios } from '@/features/usuarios/data/usuarios'
-import type { UsuarioTableColumn } from '@/features/usuarios/types'
+import { useOpcoesUsuario, useUsuarios } from '@/features/usuarios/hooks'
+import type {
+  AtualizarUsuarioInput,
+  Usuario,
+  UsuarioTableColumn,
+  UsuarioView,
+} from '@/features/usuarios/types'
 
 const defaultVisibleColumns: UsuarioTableColumn[] = [
   'nome',
@@ -29,10 +36,32 @@ function normalizeSearchValue(value: string) {
  */
 export function UsuariosList() {
   const navigate = useNavigate()
+  // Dados vêm da API (tabela users com JOINs).
+  const { usuarios, isLoading, error, atualizarUsuario } = useUsuarios()
+  // Opções dos dropdowns do modal de edição.
+  const { departamentos, funcoes } = useOpcoesUsuario()
   const [search, setSearch] = useState('')
+  const [view, setView] = useState<UsuarioView>('tabela')
   const [visibleColumns, setVisibleColumns] = useState<UsuarioTableColumn[]>(
     defaultVisibleColumns
   )
+  // Usuário em edição (null = modal fechado) e estado de salvamento.
+  const [usuarioEmEdicao, setUsuarioEmEdicao] = useState<Usuario | null>(null)
+  const [salvando, setSalvando] = useState(false)
+
+  async function handleSalvarEdicao(input: AtualizarUsuarioInput) {
+    if (!usuarioEmEdicao) return
+    setSalvando(true)
+    try {
+      await atualizarUsuario(usuarioEmEdicao.id, input)
+      setUsuarioEmEdicao(null)
+    } catch (erro) {
+      console.error(erro)
+      // Em produção: exibir toast com a mensagem de erro.
+    } finally {
+      setSalvando(false)
+    }
+  }
   const searchTerm = normalizeSearchValue(search.trim())
   const filteredUsuarios = useMemo(() => {
     if (!searchTerm) {
@@ -52,7 +81,7 @@ export function UsuariosList() {
 
       return searchableContent.includes(searchTerm)
     })
-  }, [searchTerm])
+  }, [searchTerm, usuarios])
 
   return (
     <AppLayout
@@ -64,15 +93,42 @@ export function UsuariosList() {
         <UsuariosTableActions
           search={search}
           visibleColumns={visibleColumns}
+          view={view}
           onSearchChange={setSearch}
           onVisibleColumnsChange={setVisibleColumns}
+          onViewChange={setView}
         />
-        <UsuariosTable
-          data={filteredUsuarios}
-          visibleColumns={visibleColumns}
-          onSelectUsuario={(usuarioId) => navigate(`/usuarios/${usuarioId}`)}
-        />
+        {error ? (
+          <p className="rounded-lg border border-dashed p-6 text-center text-sm text-destructive">
+            {error}
+          </p>
+        ) : isLoading ? (
+          <p className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
+            Carregando usuários…
+          </p>
+        ) : view === 'quadro' ? (
+          <UsuariosGrid
+            data={filteredUsuarios}
+            onSelectUsuario={(usuarioId) => navigate(`/usuarios/${usuarioId}`)}
+          />
+        ) : (
+          <UsuariosTable
+            data={filteredUsuarios}
+            visibleColumns={visibleColumns}
+            onSelectUsuario={(usuarioId) => navigate(`/usuarios/${usuarioId}`)}
+            onEditarUsuario={setUsuarioEmEdicao}
+          />
+        )}
       </div>
+
+      <EditarUsuarioModal
+        usuario={usuarioEmEdicao}
+        departamentos={departamentos}
+        funcoes={funcoes}
+        isSaving={salvando}
+        onClose={() => setUsuarioEmEdicao(null)}
+        onSalvar={handleSalvarEdicao}
+      />
     </AppLayout>
   )
 }

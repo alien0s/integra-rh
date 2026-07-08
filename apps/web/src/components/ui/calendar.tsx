@@ -117,7 +117,10 @@ function Calendar({
           defaultClassNames.range_end
         ),
         today: cn(
-          "rounded-(--cell-radius) bg-muted text-foreground data-[selected=true]:rounded-none",
+          // "Hoje" como contorno (ring) em vez de preenchimento, para não se
+          // misturar com o fundo do range; z alto mantém a borda acima das
+          // células vizinhas. Quando faz parte da seleção, remove o ring.
+          "relative z-20 rounded-(--cell-radius) text-foreground ring-1 ring-inset ring-muted-foreground/40 data-[selected=true]:z-0 data-[selected=true]:rounded-none data-[selected=true]:ring-0",
           defaultClassNames.today
         ),
         outside: cn(

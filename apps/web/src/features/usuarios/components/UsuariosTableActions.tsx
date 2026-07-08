@@ -1,14 +1,10 @@
 import {
   Download,
   LayoutGrid,
-  List,
   MoreHorizontal,
-  PlusCircle,
   Search,
-  Settings2,
   SlidersHorizontal,
   Table2,
-  X,
 } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
@@ -19,13 +15,18 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { Input } from '@/components/ui/input'
-import type { UsuarioTableColumn } from '@/features/usuarios/types'
+import type {
+  UsuarioTableColumn,
+  UsuarioView,
+} from '@/features/usuarios/types'
 
 interface UsuariosTableActionsProps {
   search: string
   visibleColumns: UsuarioTableColumn[]
+  view: UsuarioView
   onSearchChange: (value: string) => void
   onVisibleColumnsChange: (columns: UsuarioTableColumn[]) => void
+  onViewChange: (view: UsuarioView) => void
 }
 
 const viewButtonClassName =
@@ -45,8 +46,10 @@ const tableColumns: { id: UsuarioTableColumn; label: string }[] = [
 export function UsuariosTableActions({
   search,
   visibleColumns,
+  view,
   onSearchChange,
   onVisibleColumnsChange,
+  onViewChange,
 }: UsuariosTableActionsProps) {
   function handleColumnVisibilityChange(
     column: UsuarioTableColumn,
@@ -73,44 +76,22 @@ export function UsuariosTableActions({
           <Button
             variant="ghost"
             size="sm"
-            className={activeViewButtonClassName}
-            aria-pressed="true"
+            className={view === 'tabela' ? activeViewButtonClassName : viewButtonClassName}
+            aria-pressed={view === 'tabela'}
+            onClick={() => onViewChange('tabela')}
           >
             <Table2 className="h-4 w-4" />
             Tabela
           </Button>
-          <Button variant="ghost" size="sm" className={viewButtonClassName}>
-            <LayoutGrid className="h-4 w-4" />
-            Quadro
-          </Button>
-          <Button variant="ghost" size="sm" className={viewButtonClassName}>
-            <List className="h-4 w-4" />
-            Lista
-          </Button>
-        </div>
-
-        <div className="flex h-9 items-center gap-1 rounded-lg border border-dashed bg-background px-2">
-          <Button variant="ghost" size="sm" className="h-7 gap-1 px-1.5">
-            <PlusCircle className="h-4 w-4" />
-            Status
-          </Button>
-          <div className="h-5 w-px bg-border" />
-          <span className="rounded-md bg-muted px-2 py-1 text-xs font-medium">
-            Ativo
-          </span>
-          <span className="rounded-md bg-muted px-2 py-1 text-xs font-medium">
-            Inativo
-          </span>
-          <Button variant="ghost" size="sm" className="h-7 px-2">
-            Resetar
-          </Button>
           <Button
             variant="ghost"
-            size="icon-sm"
-            className="h-7 w-7"
-            aria-label="Limpar filtros"
+            size="sm"
+            className={view === 'quadro' ? activeViewButtonClassName : viewButtonClassName}
+            aria-pressed={view === 'quadro'}
+            onClick={() => onViewChange('quadro')}
           >
-            <X className="h-4 w-4" />
+            <LayoutGrid className="h-4 w-4" />
+            Quadro
           </Button>
         </div>
       </div>
@@ -149,10 +130,6 @@ export function UsuariosTableActions({
             ))}
           </DropdownMenuContent>
         </DropdownMenu>
-        <Button variant="ghost" size="sm" className="text-muted-foreground">
-          <Settings2 className="h-4 w-4" />
-          Personalizar
-        </Button>
         <Button
           variant="ghost"
           size="icon-sm"

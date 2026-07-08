@@ -1,2 +1,5 @@
 export { UsuariosTableActions } from './UsuariosTableActions'
 export { UsuariosTable } from './UsuariosTable'
+export { UsuariosGrid } from './UsuariosGrid'
+export { UsuarioPerfilInfo } from './UsuarioPerfilInfo'
+export { EditarUsuarioModal } from './EditarUsuarioModal'

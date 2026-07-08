@@ -30,6 +30,18 @@ export interface ApiConfig {
     tenantId: string;
     redirectUri: string;
   };
+  // Object storage compatível com S3 (MinIO em dev/VPS, R2/S3 em prod).
+  storage: {
+    endpoint: string;
+    region: string;
+    accessKey: string;
+    secretKey: string;
+    bucket: string;
+    /** URL pública para montar links de objetos (ex.: http://localhost:9000). */
+    publicUrl: string;
+    /** MinIO exige path-style (bucket no caminho, não subdomínio). */
+    forcePathStyle: boolean;
+  };
 }
 
 function readEnv(name: string, fallback = "") {
@@ -80,6 +92,15 @@ export function getApiConfig(): ApiConfig {
         "MICROSOFT_REDIRECT_URI",
         "http://localhost:3000/auth/microsoft/callback"
       )
+    },
+    storage: {
+      endpoint: readEnv("S3_ENDPOINT", "http://localhost:9000"),
+      region: readEnv("S3_REGION", "us-east-1"),
+      accessKey: readEnv("S3_ACCESS_KEY"),
+      secretKey: readEnv("S3_SECRET_KEY"),
+      bucket: readEnv("S3_BUCKET", "erp-arquivos"),
+      publicUrl: readEnv("S3_PUBLIC_URL", "http://localhost:9000"),
+      forcePathStyle: readBooleanEnv("S3_FORCE_PATH_STYLE", true)
     }
   };
 }

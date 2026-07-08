@@ -34,7 +34,7 @@ export function AppLogo({ className, size = "md", ...props }: AppLogoProps) {
       <span
         data-slot="app-logo-icon"
         className={cn(
-          "flex items-center justify-center rounded-md bg-brand text-white",
+          "flex items-center justify-center rounded-md bg-blue-600 text-white",
           logoSizeClasses[size]
         )}
       >

@@ -34,3 +34,28 @@ export interface SolicitacaoFerias {
   /** Justificativa informada ao rejeitar a solicitação. */
   motivoRejeicao?: string
 }
+
+/* ── Aba "Pessoal" (autosserviço do colaborador) ── */
+
+/** Resumo do saldo de férias do colaborador. */
+export interface FeriasResumo {
+  diasDisponiveis: number
+  diasAgendados: number
+  /** Período aquisitivo legível (ex.: "15 Jun 2024 - 14 Jun 2025"). */
+  periodoAquisitivo: string
+}
+
+/** Situação de uma solicitação no histórico do colaborador. */
+export type StatusMinhaSolicitacao = 'APROVADO' | 'PENDENTE' | 'RECUSADO'
+
+/** Item do histórico de solicitações do próprio colaborador. */
+export interface MinhaSolicitacao {
+  id: string
+  /** Período legível (ex.: "15 Dez 2023 - 29 Dez 2023"). */
+  periodo: string
+  /** Detalhe de dias (ex.: "15 dias corridos", "10 dias (Abono incluso)"). */
+  detalhe: string
+  /** Tipo (ex.: "Férias Regulares", "Férias + Abono"). */
+  tipo: string
+  status: StatusMinhaSolicitacao
+}
