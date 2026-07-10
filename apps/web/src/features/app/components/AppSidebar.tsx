@@ -5,6 +5,7 @@ import {
   Building2,
   CalendarClock,
   ClipboardList,
+  Fingerprint,
   Frame,
   GraduationCap,
   Home,
@@ -57,6 +58,11 @@ const sidebarData = {
       title: "Férias",
       url: "/ferias",
       icon: Palmtree,
+    },
+    {
+      title: "Pontos",
+      url: "/ponto",
+      icon: Fingerprint,
     },
     {
       title: "Folha",

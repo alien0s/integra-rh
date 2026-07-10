@@ -18,7 +18,25 @@ export interface Usuario {
   dataDemissao?: string
   gestor?: string
   ultimoAcesso?: string
+  /** Papéis do usuário (role_name). */
+  roles?: string[]
 }
+
+/** Papel disponível para seleção (código + rótulo). */
+export interface PapelDisponivel {
+  codigo: string
+  label: string
+}
+
+/** Vocabulário de papéis (mesmos códigos do seed 002_user_roles). */
+export const PAPEIS: PapelDisponivel[] = [
+  { codigo: 'COLABORADOR', label: 'Colaborador' },
+  { codigo: 'GESTOR', label: 'Gestor / Gerente' },
+  { codigo: 'DP', label: 'Departamento Pessoal' },
+  { codigo: 'RH', label: 'RH' },
+  { codigo: 'DIRETORIA', label: 'Diretoria' },
+  { codigo: 'ADMIN', label: 'Administrador do sistema' },
+]
 
 export type UsuarioTableColumn =
   | 'nome'
@@ -42,4 +60,5 @@ export interface AtualizarUsuarioInput {
   telefone: string | null
   departamentoId: string | null
   funcaoId: string | null
+  roles: string[]
 }

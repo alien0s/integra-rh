@@ -1,0 +1,1 @@
+export { usePonto } from './usePonto'

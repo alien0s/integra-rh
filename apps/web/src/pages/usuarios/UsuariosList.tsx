@@ -94,6 +94,7 @@ export function UsuariosList() {
           search={search}
           visibleColumns={visibleColumns}
           view={view}
+          usuarios={usuarios}
           onSearchChange={setSearch}
           onVisibleColumnsChange={setVisibleColumns}
           onViewChange={setView}

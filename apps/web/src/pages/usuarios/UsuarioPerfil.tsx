@@ -1,8 +1,10 @@
+import { useState } from 'react'
 import { useParams } from 'react-router-dom'
-import { Star } from 'lucide-react'
+import { Pencil, Star } from 'lucide-react'
 
 import { AvatarUploader } from '@/components/RH'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import {
   Card,
   CardContent,
@@ -11,8 +13,8 @@ import {
 } from '@/components/ui/card'
 import { Separator } from '@/components/ui/separator'
 import { AppLayout } from '@/features/app/components/AppLayout'
-import { UsuarioPerfilInfo } from '@/features/usuarios/components'
-import { useUsuario } from '@/features/usuarios/hooks'
+import { EditarUsuarioModal, UsuarioPerfilInfo } from '@/features/usuarios/components'
+import { useOpcoesUsuario, useUsuario } from '@/features/usuarios/hooks'
 
 const statusClassName = {
   Ativo:
@@ -44,7 +46,23 @@ const recentActivities = [
 export function UsuarioPerfil() {
   const { usuarioId } = useParams()
   // Dados do usuário vêm da API (tabela users com JOINs).
-  const { usuario, isLoading, error, atualizarAvatar } = useUsuario(usuarioId)
+  const { usuario, isLoading, error, atualizarAvatar, atualizarUsuario } =
+    useUsuario(usuarioId)
+  const { departamentos, funcoes } = useOpcoesUsuario()
+  const [editando, setEditando] = useState(false)
+  const [salvando, setSalvando] = useState(false)
+
+  async function handleSalvarEdicao(input: Parameters<typeof atualizarUsuario>[0]) {
+    setSalvando(true)
+    try {
+      await atualizarUsuario(input)
+      setEditando(false)
+    } catch (erro) {
+      console.error(erro)
+    } finally {
+      setSalvando(false)
+    }
+  }
 
   if (isLoading || !usuario) {
     return (
@@ -79,28 +97,40 @@ export function UsuarioPerfil() {
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1fr_360px]">
         <Card className="shadow-none">
           <CardContent className="flex flex-col gap-6 p-6">
-            <div className="flex items-start gap-4">
-              <AvatarUploader
-                src={usuario.fotoUrl}
-                nome={usuario.nome}
-                iniciais={usuario.iniciais}
-                className="h-24 w-24"
-                onUpload={atualizarAvatar}
-              />
-              <div className="flex min-w-0 flex-col gap-1">
-                <h2 className="text-xl font-semibold leading-tight">
-                  {usuario.nome}
-                </h2>
-                <p className="text-sm text-muted-foreground">
-                  {usuario.funcao} • {usuario.departamento}
-                </p>
-                <Badge
-                  variant="outline"
-                  className={`mt-1 w-fit justify-center rounded-lg px-2 py-1 text-xs font-medium shadow-none ${statusClassName[usuario.status]}`}
-                >
-                  {usuario.status}
-                </Badge>
+            <div className="flex items-start justify-between gap-4">
+              <div className="flex items-start gap-4">
+                <AvatarUploader
+                  src={usuario.fotoUrl}
+                  nome={usuario.nome}
+                  iniciais={usuario.iniciais}
+                  className="h-24 w-24"
+                  onUpload={atualizarAvatar}
+                />
+                <div className="flex min-w-0 flex-col gap-1">
+                  <h2 className="text-xl font-semibold leading-tight">
+                    {usuario.nome}
+                  </h2>
+                  <p className="text-sm text-muted-foreground">
+                    {usuario.funcao} • {usuario.departamento}
+                  </p>
+                  <Badge
+                    variant="outline"
+                    className={`mt-1 w-fit justify-center rounded-lg px-2 py-1 text-xs font-medium shadow-none ${statusClassName[usuario.status]}`}
+                  >
+                    {usuario.status}
+                  </Badge>
+                </div>
               </div>
+
+              <Button
+                variant="outline"
+                size="sm"
+                className="self-center"
+                onClick={() => setEditando(true)}
+              >
+                <Pencil className="h-4 w-4" />
+                Editar
+              </Button>
             </div>
 
             <Separator />
@@ -134,6 +164,15 @@ export function UsuarioPerfil() {
           </CardContent>
         </Card>
       </div>
+
+      <EditarUsuarioModal
+        usuario={editando ? usuario : null}
+        departamentos={departamentos}
+        funcoes={funcoes}
+        isSaving={salvando}
+        onClose={() => setEditando(false)}
+        onSalvar={handleSalvarEdicao}
+      />
     </AppLayout>
   )
 }

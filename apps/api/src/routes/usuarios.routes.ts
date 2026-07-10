@@ -101,6 +101,7 @@ export async function usuariosRoutes(app: FastifyInstance) {
             telefone: { type: ["string", "null"] },
             departamentoId: { type: ["string", "null"] },
             funcaoId: { type: ["string", "null"] },
+            roles: { type: "array", items: { type: "string" } },
           },
           additionalProperties: false,
         },

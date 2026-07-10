@@ -1,5 +1,7 @@
 import {
   Download,
+  FileSpreadsheet,
+  FileText,
   LayoutGrid,
   MoreHorizontal,
   Search,
@@ -12,10 +14,16 @@ import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
   DropdownMenuContent,
+  DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { Input } from '@/components/ui/input'
+import {
+  exportarUsuariosExcel,
+  exportarUsuariosPdf,
+} from '@/features/usuarios/services'
 import type {
+  Usuario,
   UsuarioTableColumn,
   UsuarioView,
 } from '@/features/usuarios/types'
@@ -24,6 +32,8 @@ interface UsuariosTableActionsProps {
   search: string
   visibleColumns: UsuarioTableColumn[]
   view: UsuarioView
+  /** Usuários a exportar (Excel/PDF). */
+  usuarios: Usuario[]
   onSearchChange: (value: string) => void
   onVisibleColumnsChange: (columns: UsuarioTableColumn[]) => void
   onViewChange: (view: UsuarioView) => void
@@ -47,6 +57,7 @@ export function UsuariosTableActions({
   search,
   visibleColumns,
   view,
+  usuarios,
   onSearchChange,
   onVisibleColumnsChange,
   onViewChange,
@@ -138,10 +149,24 @@ export function UsuariosTableActions({
         >
           <MoreHorizontal className="h-4 w-4" />
         </Button>
-        <Button variant="outline" size="sm" className="bg-background">
-          <Download className="h-4 w-4" />
-          Exportar
-        </Button>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="outline" size="sm" className="bg-background">
+              <Download className="h-4 w-4" />
+              Exportar
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-44">
+            <DropdownMenuItem onSelect={() => exportarUsuariosExcel(usuarios)}>
+              <FileSpreadsheet className="h-4 w-4" />
+              Arquivo Excel
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => exportarUsuariosPdf(usuarios)}>
+              <FileText className="h-4 w-4" />
+              PDF
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
     </div>
   )

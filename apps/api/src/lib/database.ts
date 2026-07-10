@@ -160,6 +160,8 @@ export interface UsuarioDetalhado {
   dataDemissao: string | null;
   gestor: string | null;
   ultimoAcesso: string | null;
+  /** Papéis do usuário (role_name em user_roles). */
+  roles: string[];
 }
 
 /** Linha crua retornada pela query (sem as iniciais, derivadas no JS). */
@@ -229,7 +231,12 @@ const SELECT_USUARIO_DETALHADO = (sql: ReturnType<typeof postgres>) => sql`
     to_char(u.data_admissao, 'DD/MM/YYYY')            AS "dataAdmissao",
     to_char(u.data_demissao, 'DD/MM/YYYY')            AS "dataDemissao",
     m.nome                                            AS gestor,
-    to_char(u.last_login_at, 'DD/MM/YYYY HH24:MI')    AS "ultimoAcesso"
+    to_char(u.last_login_at, 'DD/MM/YYYY HH24:MI')    AS "ultimoAcesso",
+    COALESCE(
+      (SELECT array_agg(ur.role_name ORDER BY ur.role_name)
+       FROM user_roles ur WHERE ur.user_id = u.id),
+      '{}'
+    )                                                 AS roles
   FROM users u
   LEFT JOIN departments d ON d.id = u.department_id
   LEFT JOIN functions  f ON f.id = u.function_id
@@ -311,11 +318,14 @@ export interface AtualizarUsuarioInput {
   telefone: string | null;
   departamentoId: string | null;
   funcaoId: string | null;
+  /** Papéis (role_name) — substituem os atuais. */
+  roles: string[];
 }
 
 /**
- * Atualiza os campos editáveis de um usuário (cpf, telefone, departamento e
- * função) e retorna o usuário atualizado. Retorna null se o id não existir.
+ * Atualiza os campos editáveis de um usuário (cpf, telefone, departamento,
+ * função e papéis) e retorna o usuário atualizado. Retorna null se não existir.
+ * Faz tudo numa transação: os papéis são substituídos (apaga e reinsere).
  */
 export async function atualizarUsuario(
   id: string,
@@ -323,16 +333,34 @@ export async function atualizarUsuario(
 ): Promise<UsuarioDetalhado | null> {
   const sql = getDatabase();
 
-  const updated = await sql`
-    UPDATE users SET
-      cpf           = ${input.cpf},
-      telefone      = ${input.telefone},
-      department_id = ${input.departamentoId},
-      function_id   = ${input.funcaoId}
-    WHERE id = ${id}
-  `;
+  const encontrado = await sql.begin(async (tx) => {
+    const updated = await tx`
+      UPDATE users SET
+        cpf           = ${input.cpf},
+        telefone      = ${input.telefone},
+        department_id = ${input.departamentoId},
+        function_id   = ${input.funcaoId}
+      WHERE id = ${id}
+    `;
 
-  if (updated.count === 0) {
+    if (updated.count === 0) {
+      return false;
+    }
+
+    // Substitui os papéis: remove os atuais e reinsere os informados.
+    await tx`DELETE FROM user_roles WHERE user_id = ${id}`;
+    if (input.roles.length > 0) {
+      await tx`
+        INSERT INTO user_roles ${tx(
+          input.roles.map((role) => ({ user_id: id, role_name: role })),
+        )}
+      `;
+    }
+
+    return true;
+  });
+
+  if (!encontrado) {
     return null;
   }
 

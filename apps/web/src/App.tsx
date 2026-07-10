@@ -4,6 +4,7 @@ import { Toaster } from "@/components/ui/toaster"
 import { LoginPage } from "@/features/auth"
 import { CursosPage } from "@/features/cursos"
 import { FeriasPage } from "@/features/ferias"
+import { PontoPage } from "@/features/ponto"
 import { ConfiguracoesPage } from "@/features/configuracoes"
 import { UsuariosPage } from "@/features/usuarios"
 import { LANDING_ROUTE } from "@/lib/auth"
@@ -21,6 +22,7 @@ export function App() {
         <Route path="/home" element={<HomePage />} />
         <Route path="/cursos" element={<CursosPage />} />
         <Route path="/ferias" element={<FeriasPage />} />
+        <Route path="/ponto" element={<PontoPage />} />
         <Route path="/configuracoes" element={<ConfiguracoesPage />} />
         <Route path="/usuarios" element={<UsuariosPage />} />
         <Route path="/usuarios/:usuarioId" element={<UsuarioPerfil />} />

@@ -1,8 +1,10 @@
-import { Fragment, type ReactNode } from "react"
+import { Fragment, useState, type ReactNode } from "react"
 import { Link } from "react-router-dom"
-import { Bell } from "lucide-react"
+import { Bell, Search } from "lucide-react"
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
+import { Input } from "@/components/ui/input"
+import { CommandPalette } from "@/features/app/components/CommandPalette"
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -86,11 +88,13 @@ export function AppHeader({
   breadcrumbs,
 }: AppHeaderProps) {
   const { open } = useSidebar()
+  const [buscaAberta, setBuscaAberta] = useState(false)
   const unreadCount = notifications.filter(
     (notification) => notification.unread
   ).length
 
   return (
+    <>
     <header className="sticky top-0 z-10 border-b bg-card">
       <div
         className={`flex min-h-16 flex-col items-start justify-center gap-3 py-4 sm:flex-row sm:items-center sm:justify-between sm:py-0 ${className}`}
@@ -142,15 +146,21 @@ export function AppHeader({
         </div>
 
         <div className="flex w-full shrink-0 items-center justify-end gap-4 overflow-x-auto sm:overflow-visible sm:w-auto">
+          <div className="relative w-full sm:w-56">
+            <Search className="absolute left-2.5 top-2 h-4 w-4 text-muted-foreground" />
+            <Input
+              type="search"
+              placeholder="Pesquisar"
+              readOnly
+              onClick={() => setBuscaAberta(true)}
+              onFocus={() => setBuscaAberta(true)}
+              className="h-8 cursor-pointer bg-background pl-8 shadow-none"
+            />
+          </div>
           {actions ? actions : null}
-          <div
-            className={
-              actions
-                ? "flex items-center gap-4"
-                : "flex items-center"
-            }
-          >
-            {actions ? <Separator orientation="vertical" className="h-6" /> : null}
+          <div className="flex items-center gap-4">
+            {/* Pipe sempre presente no header (separa busca/ações das notificações). */}
+            <Separator orientation="vertical" className="h-6" />
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button
@@ -220,5 +230,8 @@ export function AppHeader({
         </div>
       </div>
     </header>
+
+      <CommandPalette open={buscaAberta} onOpenChange={setBuscaAberta} />
+    </>
   )
 }

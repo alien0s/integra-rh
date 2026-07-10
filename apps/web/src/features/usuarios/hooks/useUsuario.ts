@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 
-import type { Usuario } from '@/features/usuarios/types'
+import type { AtualizarUsuarioInput, Usuario } from '@/features/usuarios/types'
 import { usuariosService } from '@/features/usuarios/services'
 
 /**
@@ -50,5 +50,12 @@ export function useUsuario(id: string | undefined) {
     setUsuario((anterior) => (anterior ? { ...anterior, fotoUrl: url } : anterior))
   }
 
-  return { usuario, isLoading, error, atualizarAvatar }
+  /** Atualiza os campos editáveis do usuário e sincroniza o estado local. */
+  async function atualizarUsuario(input: AtualizarUsuarioInput) {
+    if (!id) return
+    const atualizado = await usuariosService.atualizarUsuario(id, input)
+    setUsuario(atualizado)
+  }
+
+  return { usuario, isLoading, error, atualizarAvatar, atualizarUsuario }
 }
