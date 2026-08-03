@@ -1,6 +1,10 @@
 import postgres from 'postgres';
 
 import { getApiConfig } from '../plugins/env.js';
+import {
+  buscarFuncionarioLegado,
+  type FuncionarioLegado,
+} from './mssql.js';
 
 let _sql: ReturnType<typeof postgres> | null = null;
 
@@ -95,15 +99,152 @@ export async function findOrCreateUser(profile: MicrosoftProfile): Promise<AppUs
   }
 
   // Primeiro login: cria com email, nome e avatar. RH completa o resto.
+  // Papel base COLABORADOR por padrão (RH ajusta depois).
   const [created] = await sql<{ id: string }[]>`
-    INSERT INTO users (email, nome, avatar_url, last_login_at)
-    VALUES (${profile.email}, ${profile.nome}, ${profile.avatarUrl ?? null}, NOW())
+    INSERT INTO users (email, nome, avatar_url, role_id, last_login_at)
+    VALUES (
+      ${profile.email}, ${profile.nome}, ${profile.avatarUrl ?? null},
+      (SELECT id FROM roles WHERE codigo = 'COLABORADOR'), NOW()
+    )
     RETURNING id
   `;
 
   const [user] = await sql<AppUser[]>`
     ${SELECT_APP_USER(sql)}
     WHERE u.id = ${created.id}
+  `;
+
+  return user;
+}
+
+/* ──────────────────────────────────────────────────────────────────────────
+ * Login local por e-mail + senha (temporário, até o Microsoft OAuth existir)
+ * ────────────────────────────────────────────────────────────────────────── */
+
+/** Usuário com o hash da senha, para autenticação local. */
+export interface AppUserComSenha extends AppUser {
+  passwordHash: string | null;
+}
+
+/**
+ * Busca um usuário pelo e-mail incluindo o hash da senha (login local).
+ * Retorna null se o e-mail não existir.
+ */
+export async function getUsuarioAuthPorEmail(
+  email: string,
+): Promise<AppUserComSenha | null> {
+  const sql = getDatabase();
+
+  const [user] = await sql<AppUserComSenha[]>`
+    SELECT u.id,
+           u.email,
+           u.nome,
+           u.avatar_url    AS "avatarUrl",
+           d.nome          AS departamento,
+           f.nome          AS funcao,
+           u.password_hash AS "passwordHash"
+    FROM users u
+    LEFT JOIN departments d ON d.id = u.department_id
+    LEFT JOIN functions  f ON f.id = u.function_id
+    WHERE u.email = ${email}
+    LIMIT 1
+  `;
+
+  return user ?? null;
+}
+
+/** Define/atualiza o hash da senha de um usuário existente. */
+export async function definirSenhaUsuario(
+  userId: string,
+  passwordHash: string,
+): Promise<AppUser | null> {
+  const sql = getDatabase();
+
+  const atualizado = await sql`
+    UPDATE users
+    SET password_hash = ${passwordHash}, last_login_at = NOW()
+    WHERE id = ${userId}
+  `;
+
+  if (atualizado.count === 0) {
+    return null;
+  }
+
+  const [user] = await sql<AppUser[]>`
+    ${SELECT_APP_USER(sql)}
+    WHERE u.id = ${userId}
+  `;
+
+  return user;
+}
+
+/**
+ * Cria um usuário no 1º acesso do login local (e-mail + senha).
+ * Enriquecimento: busca o funcionário no banco legado (SQL Server) pelo e-mail
+ * e, quando encontrado, usa o nome oficial + CPF + telefone. Se o legado não
+ * retornar (desabilitado ou e-mail não encontrado), usa o nome informado na
+ * tela. Entidade/departamento/função (FKs) ficam para o RH/passo futuro.
+ */
+/**
+ * Insere um usuário já enriquecido com os dados do banco legado (quando houver).
+ * Papel base COLABORADOR. Retorna o id criado. `passwordHash` = null no login
+ * LDAP/SSO (a credencial não fica aqui).
+ */
+async function inserirUsuarioComLegado(
+  sql: ReturnType<typeof postgres>,
+  input: {
+    email: string;
+    nome: string;
+    passwordHash: string | null;
+    legado: FuncionarioLegado | null;
+  },
+): Promise<string> {
+  const l = input.legado;
+  const [created] = await sql<{ id: string }[]>`
+    INSERT INTO users (
+      email, nome, cpf, telefone,
+      data_admissao, data_nascimento, sexo, estado_civil_id,
+      cidade, estado, pis,
+      numero_banco, numero_conta, digito_conta,
+      password_hash, role_id, last_login_at
+    )
+    VALUES (
+      ${input.email}, ${input.nome}, ${l?.cpf ?? null}, ${l?.telefone ?? null},
+      ${l?.dataAdmissao ?? null}, ${l?.dataNascimento ?? null}, ${l?.sexo ?? null},
+      (SELECT id FROM estados_civis WHERE codigo = ${l?.estadoCivilCodigo ?? null}),
+      ${l?.cidade ?? null}, ${l?.uf ?? null}, ${l?.pis ?? null},
+      ${l?.numeroBanco ?? null}, ${l?.numeroConta ?? null}, ${l?.digitoConta ?? null},
+      ${input.passwordHash},
+      (SELECT id FROM roles WHERE codigo = 'COLABORADOR'), NOW()
+    )
+    RETURNING id
+  `;
+  return created.id;
+}
+
+export async function criarUsuarioComSenha(input: {
+  email: string;
+  nome?: string;
+  passwordHash: string;
+}): Promise<AppUser> {
+  const sql = getDatabase();
+
+  const legado = await buscarFuncionarioLegado(input.email);
+  // Nome oficial vem do SQL Server; fallbacks: nome informado (se houver) ou o
+  // trecho antes do @ (o RH ajusta depois). users.nome é NOT NULL.
+  const nome =
+    legado?.nome ?? input.nome ?? input.email.split("@")[0] ?? input.email;
+
+  const id = await inserirUsuarioComLegado(sql, {
+    email: input.email,
+    nome,
+    passwordHash: input.passwordHash,
+    legado,
+  });
+
+  const [user] = await sql<AppUser[]>`
+    ${SELECT_APP_USER(sql)}
+    WHERE u.id = ${id}
   `;
 
   return user;
@@ -160,8 +301,24 @@ export interface UsuarioDetalhado {
   dataDemissao: string | null;
   gestor: string | null;
   ultimoAcesso: string | null;
-  /** Papéis do usuário (role_name em user_roles). */
-  roles: string[];
+  /** Papel/perfil de acesso (código, ex.: "ADMIN") — único por usuário. */
+  papelCodigo: string | null;
+  /** Nome do papel para exibição (ex.: "Administrador do sistema"). */
+  papel: string | null;
+  /** Data de nascimento "DD/MM/AAAA". */
+  dataNascimento: string | null;
+  /** Sexo: 1 = masculino, 0 = feminino. */
+  sexo: number | null;
+  /** Estado civil (nome, ex.: "Solteiro(a)"). */
+  estadoCivil: string | null;
+  cidade: string | null;
+  /** UF (2 letras). */
+  estado: string | null;
+  pis: string | null;
+  /** Código do banco (3 dígitos). */
+  numeroBanco: string | null;
+  numeroConta: string | null;
+  digitoConta: string | null;
 }
 
 /** Linha crua retornada pela query (sem as iniciais, derivadas no JS). */
@@ -232,15 +389,23 @@ const SELECT_USUARIO_DETALHADO = (sql: ReturnType<typeof postgres>) => sql`
     to_char(u.data_demissao, 'DD/MM/YYYY')            AS "dataDemissao",
     m.nome                                            AS gestor,
     to_char(u.last_login_at, 'DD/MM/YYYY HH24:MI')    AS "ultimoAcesso",
-    COALESCE(
-      (SELECT array_agg(ur.role_name ORDER BY ur.role_name)
-       FROM user_roles ur WHERE ur.user_id = u.id),
-      '{}'
-    )                                                 AS roles
+    r.codigo                                          AS "papelCodigo",
+    r.nome                                            AS papel,
+    to_char(u.data_nascimento, 'DD/MM/YYYY')          AS "dataNascimento",
+    u.sexo                                            AS sexo,
+    ec.nome                                           AS "estadoCivil",
+    u.cidade,
+    u.estado,
+    u.pis,
+    u.numero_banco                                    AS "numeroBanco",
+    u.numero_conta                                    AS "numeroConta",
+    u.digito_conta                                    AS "digitoConta"
   FROM users u
-  LEFT JOIN departments d ON d.id = u.department_id
-  LEFT JOIN functions  f ON f.id = u.function_id
-  LEFT JOIN users      m ON m.id = u.manager_id
+  LEFT JOIN departments   d  ON d.id = u.department_id
+  LEFT JOIN functions     f  ON f.id = u.function_id
+  LEFT JOIN users         m  ON m.id = u.manager_id
+  LEFT JOIN roles         r  ON r.id = u.role_id
+  LEFT JOIN estados_civis ec ON ec.id = u.estado_civil_id
 `;
 
 /**
@@ -318,14 +483,25 @@ export interface AtualizarUsuarioInput {
   telefone: string | null;
   departamentoId: string | null;
   funcaoId: string | null;
-  /** Papéis (role_name) — substituem os atuais. */
-  roles: string[];
+  /** Código do papel/perfil de acesso (ex.: "ADMIN") ou null. */
+  roleCodigo: string | null;
+}
+
+/** Resolve o id do papel a partir do código (ou null). */
+async function resolverRoleId(
+  sql: ReturnType<typeof postgres>,
+  roleCodigo: string | null,
+): Promise<string | null> {
+  if (!roleCodigo) return null;
+  const [role] = await sql<{ id: string }[]>`
+    SELECT id FROM roles WHERE codigo = ${roleCodigo} LIMIT 1
+  `;
+  return role?.id ?? null;
 }
 
 /**
  * Atualiza os campos editáveis de um usuário (cpf, telefone, departamento,
- * função e papéis) e retorna o usuário atualizado. Retorna null se não existir.
- * Faz tudo numa transação: os papéis são substituídos (apaga e reinsere).
+ * função e papel). Retorna o usuário atualizado ou null se não existir.
  */
 export async function atualizarUsuario(
   id: string,
@@ -333,34 +509,81 @@ export async function atualizarUsuario(
 ): Promise<UsuarioDetalhado | null> {
   const sql = getDatabase();
 
-  const encontrado = await sql.begin(async (tx) => {
-    const updated = await tx`
-      UPDATE users SET
-        cpf           = ${input.cpf},
-        telefone      = ${input.telefone},
-        department_id = ${input.departamentoId},
-        function_id   = ${input.funcaoId}
-      WHERE id = ${id}
-    `;
+  const roleId = await resolverRoleId(sql, input.roleCodigo);
 
-    if (updated.count === 0) {
-      return false;
-    }
+  const updated = await sql`
+    UPDATE users SET
+      cpf           = ${input.cpf},
+      telefone      = ${input.telefone},
+      department_id = ${input.departamentoId},
+      function_id   = ${input.funcaoId},
+      role_id       = ${roleId}
+    WHERE id = ${id}
+  `;
 
-    // Substitui os papéis: remove os atuais e reinsere os informados.
-    await tx`DELETE FROM user_roles WHERE user_id = ${id}`;
-    if (input.roles.length > 0) {
-      await tx`
-        INSERT INTO user_roles ${tx(
-          input.roles.map((role) => ({ user_id: id, role_name: role })),
-        )}
-      `;
-    }
+  if (updated.count === 0) {
+    return null;
+  }
 
-    return true;
+  return getUsuarioPorId(id);
+}
+
+/**
+ * Resolve o usuário local após um login bem-sucedido no LDAP (Microsoft AD).
+ * Se já existe (por e-mail): atualiza last_login_at e retorna. Se não existe:
+ * cria o registro enriquecendo com o banco legado (nome/cpf/telefone/admissão).
+ * A senha NÃO é armazenada — a credencial fica no AD.
+ */
+export async function findOrCreateUsuarioLocal(email: string): Promise<AppUser> {
+  const sql = getDatabase();
+
+  const existente = await getUsuarioAuthPorEmail(email);
+  if (existente) {
+    await sql`UPDATE users SET last_login_at = NOW() WHERE id = ${existente.id}`;
+    return {
+      id: existente.id,
+      email: existente.email,
+      nome: existente.nome,
+      avatarUrl: existente.avatarUrl,
+      departamento: existente.departamento,
+      funcao: existente.funcao,
+    };
+  }
+
+  const legado = await buscarFuncionarioLegado(email);
+  const nome = legado?.nome ?? email.split("@")[0] ?? email;
+
+  const id = await inserirUsuarioComLegado(sql, {
+    email,
+    nome,
+    passwordHash: null,
+    legado,
   });
 
-  if (!encontrado) {
+  const [user] = await sql<AppUser[]>`
+    ${SELECT_APP_USER(sql)}
+    WHERE u.id = ${id}
+  `;
+
+  return user;
+}
+
+/**
+ * Atualização do próprio perfil (self-service): mexe SÓ em cpf e telefone.
+ * Não toca em departamento/função/papéis — diferente de atualizarUsuario (RH).
+ */
+export async function atualizarPerfilProprio(
+  id: string,
+  input: { cpf: string | null; telefone: string | null },
+): Promise<UsuarioDetalhado | null> {
+  const sql = getDatabase();
+
+  const updated = await sql`
+    UPDATE users SET cpf = ${input.cpf}, telefone = ${input.telefone}
+    WHERE id = ${id}
+  `;
+
+  if (updated.count === 0) {
     return null;
   }
 

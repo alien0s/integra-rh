@@ -1,0 +1,1 @@
+export { notificacoesService } from './notificacoesService'

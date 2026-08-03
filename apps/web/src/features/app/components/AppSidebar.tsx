@@ -32,12 +32,6 @@ import { NavMain } from "@/features/app/components/NavMain"
 import { NavUser } from "@/features/app/components/NavUser"
 
 const sidebarData = {
-  user: {
-    name: "Administrador",
-    email: "admin@aceam.org.br",
-    avatar:
-      "https://64.media.tumblr.com/4cd75c356eab6a8766db28cdd0cb1831/4bda282c1c1300a9-a7/s400x600/eaeee415806ccc605406310d6a111126d714a2d2.jpg",
-  },
   navMain: [
     {
       title: "Dashboard",
@@ -146,7 +140,7 @@ export function AppSidebar(props: ComponentProps<typeof Sidebar>) {
         <NavMain items={sidebarData.navMain} />
       </SidebarContent>
       <SidebarFooter>
-        <NavUser user={sidebarData.user} />
+        <NavUser />
       </SidebarFooter>
       <SidebarRail />
     </Sidebar>

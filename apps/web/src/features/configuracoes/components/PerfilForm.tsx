@@ -6,42 +6,46 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Separator } from '@/components/ui/separator'
 
-import type { PerfilFormData } from '@/features/configuracoes/types'
 import { mascararCpf, mascararTelefone } from '@/lib/masks'
 
-/** Deriva as iniciais (primeiro + último nome) para o fallback do avatar. */
-function gerarIniciais(nome: string): string {
-  const partes = nome.trim().split(/\s+/).filter(Boolean)
-  const primeira = partes[0]?.[0] ?? ''
-  const ultima = partes.length > 1 ? partes[partes.length - 1][0] : ''
-  return `${primeira}${ultima}`.toUpperCase()
-}
-
 interface PerfilFormProps {
-  /** E-mail do usuário (somente leitura — vem do login Microsoft). */
-  email?: string
-  /** Valores iniciais do formulário. */
-  initial?: PerfilFormData
-  onSalvar?: (dados: PerfilFormData) => void
+  /** Nome (somente leitura — vem do cadastro oficial / SQL Server). */
+  nome: string
+  /** E-mail (somente leitura — vem do login). */
+  email: string
+  /** URL da foto atual (já resolvida). */
+  fotoUrl?: string
+  /** Iniciais para o fallback do avatar. */
+  iniciais: string
+  /** CPF já mascarado para exibição. */
+  cpfInicial: string
+  /** Telefone já mascarado para exibição. */
+  telefoneInicial: string
+  isSaving?: boolean
+  onSalvar: (dados: { cpf: string; telefone: string }) => void
+  onUploadAvatar: (blob: Blob) => Promise<void> | void
 }
-
-const VAZIO: PerfilFormData = { nome: '', cpf: '', telefone: '' }
 
 /**
- * Formulário de perfil do próprio usuário (campos da tabela users).
- * O botão só habilita quando há alteração.
+ * Formulário de perfil do próprio usuário. Nome/e-mail são somente leitura
+ * (vêm do cadastro/login); edita CPF, telefone e a foto. O botão só habilita
+ * quando há alteração nos campos editáveis.
  */
 export function PerfilForm({
-  email = '',
-  initial = VAZIO,
+  nome,
+  email,
+  fotoUrl,
+  iniciais,
+  cpfInicial,
+  telefoneInicial,
+  isSaving = false,
   onSalvar,
+  onUploadAvatar,
 }: PerfilFormProps) {
-  const [form, setForm] = useState<PerfilFormData>(initial)
+  const [cpf, setCpf] = useState(cpfInicial)
+  const [telefone, setTelefone] = useState(telefoneInicial)
 
-  const alterado =
-    form.nome !== initial.nome ||
-    form.cpf !== initial.cpf ||
-    form.telefone !== initial.telefone
+  const alterado = cpf !== cpfInicial || telefone !== telefoneInicial
 
   return (
     <div className="flex flex-col gap-6">
@@ -57,23 +61,20 @@ export function PerfilForm({
         <div className="flex flex-col gap-2">
           <Label>Foto</Label>
           <AvatarUploader
-            nome={form.nome}
-            iniciais={gerarIniciais(form.nome)}
+            src={fotoUrl}
+            nome={nome}
+            iniciais={iniciais}
             className="h-20 w-20"
+            onUpload={onUploadAvatar}
             withActions
           />
         </div>
 
         <div className="flex flex-col gap-2">
           <Label htmlFor="nome">Nome</Label>
-          <Input
-            id="nome"
-            value={form.nome}
-            onChange={(e) => setForm((f) => ({ ...f, nome: e.target.value }))}
-            placeholder="Seu nome completo"
-          />
+          <Input id="nome" value={nome} disabled />
           <p className="text-xs text-muted-foreground">
-            Nome exibido para os demais usuários do sistema.
+            Vem do cadastro oficial — não pode ser alterado aqui.
           </p>
         </div>
 
@@ -81,7 +82,7 @@ export function PerfilForm({
           <Label htmlFor="email">E-mail</Label>
           <Input id="email" value={email} disabled />
           <p className="text-xs text-muted-foreground">
-            Gerenciado pelo login Microsoft — não pode ser alterado aqui.
+            Gerenciado pelo login — não pode ser alterado aqui.
           </p>
         </div>
 
@@ -89,12 +90,10 @@ export function PerfilForm({
           <Label htmlFor="cpf">CPF</Label>
           <Input
             id="cpf"
-            value={form.cpf}
+            value={cpf}
             inputMode="numeric"
             maxLength={14}
-            onChange={(e) =>
-              setForm((f) => ({ ...f, cpf: mascararCpf(e.target.value) }))
-            }
+            onChange={(e) => setCpf(mascararCpf(e.target.value))}
             placeholder="000.000.000-00"
           />
         </div>
@@ -103,12 +102,10 @@ export function PerfilForm({
           <Label htmlFor="telefone">Telefone</Label>
           <Input
             id="telefone"
-            value={form.telefone}
+            value={telefone}
             inputMode="tel"
             maxLength={19}
-            onChange={(e) =>
-              setForm((f) => ({ ...f, telefone: mascararTelefone(e.target.value) }))
-            }
+            onChange={(e) => setTelefone(mascararTelefone(e.target.value))}
             placeholder="+55 (00) 00000-0000"
           />
         </div>
@@ -116,10 +113,10 @@ export function PerfilForm({
         <div>
           <Button
             size="sm"
-            disabled={!alterado}
-            onClick={() => onSalvar?.(form)}
+            disabled={!alterado || isSaving}
+            onClick={() => onSalvar({ cpf, telefone })}
           >
-            Salvar alterações
+            {isSaving ? 'Salvando…' : 'Salvar alterações'}
           </Button>
         </div>
       </div>

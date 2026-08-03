@@ -26,7 +26,6 @@ import type {
 } from '@/features/usuarios/types'
 import { PAPEIS } from '@/features/usuarios/types'
 import { mascararCpf, mascararTelefone } from '@/lib/masks'
-import { cn } from '@/lib/utils'
 
 interface EditarUsuarioModalProps {
   /** Usuário em edição (null quando o modal está fechado). */
@@ -46,12 +45,7 @@ interface FormState {
   telefone: string
   departamentoId: string
   funcaoId: string
-  roles: string[]
-}
-
-/** Normaliza uma lista de papéis para comparação (ordenada). */
-function chaveRoles(roles: string[]): string {
-  return [...roles].sort().join(',')
+  papelCodigo: string
 }
 
 /** Acha o id de uma opção pelo nome (para pré-selecionar os dropdowns). */
@@ -76,7 +70,7 @@ export function EditarUsuarioModal({
     telefone: '',
     departamentoId: '',
     funcaoId: '',
-    roles: [],
+    papelCodigo: '',
   })
 
   // Valores iniciais (para detectar alterações e habilitar o Salvar).
@@ -86,7 +80,7 @@ export function EditarUsuarioModal({
       telefone: usuario?.telefone ?? '',
       departamentoId: usuario ? idPorNome(departamentos, usuario.departamento) : '',
       funcaoId: usuario ? idPorNome(funcoes, usuario.funcao) : '',
-      roles: usuario?.roles ?? [],
+      papelCodigo: usuario?.papelCodigo ?? '',
     }),
     [usuario, departamentos, funcoes],
   )
@@ -101,16 +95,7 @@ export function EditarUsuarioModal({
     form.telefone !== initial.telefone ||
     form.departamentoId !== initial.departamentoId ||
     form.funcaoId !== initial.funcaoId ||
-    chaveRoles(form.roles) !== chaveRoles(initial.roles)
-
-  function toggleRole(codigo: string) {
-    setForm((f) => ({
-      ...f,
-      roles: f.roles.includes(codigo)
-        ? f.roles.filter((r) => r !== codigo)
-        : [...f.roles, codigo],
-    }))
-  }
+    form.papelCodigo !== initial.papelCodigo
 
   function handleSalvar() {
     onSalvar({
@@ -118,7 +103,7 @@ export function EditarUsuarioModal({
       telefone: form.telefone.trim() || null,
       departamentoId: form.departamentoId || null,
       funcaoId: form.funcaoId || null,
-      roles: form.roles,
+      roleCodigo: form.papelCodigo || null,
     })
   }
 
@@ -210,28 +195,24 @@ export function EditarUsuarioModal({
           </div>
 
           <div className="flex flex-col gap-2">
-            <Label>Papéis</Label>
-            <div className="flex flex-wrap gap-2">
-              {PAPEIS.map((papel) => {
-                const ativo = form.roles.includes(papel.codigo)
-                return (
-                  <button
-                    key={papel.codigo}
-                    type="button"
-                    onClick={() => toggleRole(papel.codigo)}
-                    aria-pressed={ativo}
-                    className={cn(
-                      'rounded-full border px-3 py-1 text-xs font-medium transition-colors',
-                      ativo
-                        ? 'border-blue-600 bg-blue-600 text-white'
-                        : 'text-muted-foreground hover:bg-muted hover:text-foreground',
-                    )}
-                  >
+            <Label>Papel</Label>
+            <Select
+              value={form.papelCodigo}
+              onValueChange={(value) =>
+                setForm((f) => ({ ...f, papelCodigo: value }))
+              }
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Selecione o papel" />
+              </SelectTrigger>
+              <SelectContent>
+                {PAPEIS.map((papel) => (
+                  <SelectItem key={papel.codigo} value={papel.codigo}>
                     {papel.label}
-                  </button>
-                )
-              })}
-            </div>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
         </div>
 

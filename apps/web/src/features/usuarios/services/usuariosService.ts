@@ -1,3 +1,4 @@
+import { getToken } from '@/lib/auth'
 import type {
   AtualizarUsuarioInput,
   OpcaoSelecao,
@@ -16,7 +17,7 @@ const API_URL = '/api'
 
 /** Monta o header Authorization quando há token salvo (no-op em modo dev). */
 function authHeaders(): HeadersInit {
-  const token = localStorage.getItem('token')
+  const token = getToken()
   return token ? { Authorization: `Bearer ${token}` } : {}
 }
 
@@ -93,7 +94,11 @@ export const usuariosService = {
     }
 
     const json = (await response.json()) as { url: string }
-    return { url: resolverFotoUrl(json.url) }
+    // ?t=timestamp fura o cache do navegador para exibir a foto nova na hora
+    // (a URL do avatar é estável, então sem isso viria a versão em cache).
+    const url = resolverFotoUrl(json.url)
+    const separador = url.includes('?') ? '&' : '?'
+    return { url: `${url}${separador}t=${Date.now()}` }
   },
 
   /**

@@ -24,6 +24,15 @@ export interface ApiConfig {
     user: string;
     password: string;
   };
+  // Banco legado SQL Server (consulta de funcionários, somente leitura).
+  mssql: {
+    enabled: boolean;
+    host: string;
+    port: number;
+    database: string;
+    user: string;
+    password: string;
+  };
   microsoft: {
     clientId: string;
     clientSecret: string;
@@ -83,6 +92,14 @@ export function getApiConfig(): ApiConfig {
       name: readEnv("DB_NAME"),
       user: readEnv("DB_USER"),
       password: readEnv("DB_PASSWORD")
+    },
+    mssql: {
+      enabled: readBooleanEnv("MSSQL_ENABLED", false),
+      host: readEnv("MSSQL_HOST", "localhost"),
+      port: Number(readEnv("MSSQL_PORT", "1433")),
+      database: readEnv("MSSQL_DATABASE"),
+      user: readEnv("MSSQL_USER"),
+      password: readEnv("MSSQL_PASSWORD")
     },
     microsoft: {
       clientId: readEnv("MICROSOFT_CLIENT_ID"),

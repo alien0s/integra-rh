@@ -1,30 +1,30 @@
 -- 002_user_roles.sql
--- Papéis (roles) atribuídos aos usuários. A tabela user_roles é de atribuição
--- (user_id + role_name), então este seed liga papéis aos usuários do 001_seed_inicial.
--- Idempotente: ON CONFLICT (user_id, role_name) DO NOTHING (idx_user_roles_unique).
+-- Papel (perfil de acesso) de cada usuário. A partir da migration 010, o papel
+-- é ÚNICO por usuário (users.role_id -> roles). O catálogo `roles` é criado e
+-- populado na migration 010. Idempotente.
 --
--- Vocabulário de role_name (código → descrição):
---   COLABORADOR → Colaborador (papel base, todos têm)
+-- Vocabulário (codigo → descrição):
+--   COLABORADOR → Colaborador (papel base padrão)
 --   GESTOR      → Gestor / Gerente
 --   DP          → Departamento Pessoal
 --   RH          → Recursos Humanos
 --   DIRETORIA   → Diretoria
 --   ADMIN       → Administrador do sistema
 
--- Papel base: todo usuário é COLABORADOR.
-INSERT INTO user_roles (user_id, role_name)
-SELECT id, 'COLABORADOR' FROM users
-ON CONFLICT (user_id, role_name) DO NOTHING;
+-- Base: todo usuário sem papel definido vira COLABORADOR.
+UPDATE users
+SET role_id = (SELECT id FROM roles WHERE codigo = 'COLABORADOR')
+WHERE role_id IS NULL;
 
--- Papéis específicos por usuário (cobrem os demais 5 papéis).
-INSERT INTO user_roles (user_id, role_name)
-SELECT u.id, r.role_name
-FROM users u
+-- Papéis específicos por usuário (sobrescrevem o base).
+UPDATE users u
+SET role_id = r.id
+FROM roles r
 JOIN (VALUES
   ('ana.souza@adventistas.org',     'RH'),
   ('camila.rocha@adventistas.org',  'GESTOR'),
   ('fernanda.lima@adventistas.org', 'DP'),
   ('bruno.martins@adventistas.org', 'DIRETORIA'),
   ('diego.almeida@adventistas.org', 'ADMIN')
-) AS r(email, role_name) ON u.email = r.email
-ON CONFLICT (user_id, role_name) DO NOTHING;
+) AS m(email, codigo) ON m.codigo = r.codigo
+WHERE u.email = m.email;

@@ -3,14 +3,20 @@ import type { LucideIcon } from 'lucide-react'
 import {
   Briefcase,
   Building2,
+  Cake,
   CalendarCheck,
   CalendarX,
   CheckCircle2,
   Clock,
   Fingerprint,
+  Heart,
+  IdCard,
+  Landmark,
   Mail,
+  MapPin,
   Phone,
   UserRound,
+  VenusAndMars,
   Wallet,
 } from 'lucide-react'
 
@@ -19,6 +25,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
+import { mascararCpf, mascararTelefone } from '@/lib/masks'
 import type { Usuario } from '@/features/usuarios/types'
 
 interface UsuarioPerfilInfoProps {
@@ -66,8 +73,51 @@ export function UsuarioPerfilInfo({ usuario }: UsuarioPerfilInfoProps) {
 
   const items: InfoItem[] = [
     { icon: Mail, label: 'E-mail corporativo', value: usuario.email, copiavel: true },
-    { icon: Phone, label: 'Telefone', value: usuario.telefone, copiavel: true },
-    { icon: Fingerprint, label: 'CPF', value: usuario.cpf, copiavel: true },
+    {
+      icon: Phone,
+      label: 'Telefone',
+      value: usuario.telefone ? mascararTelefone(usuario.telefone) : undefined,
+      copiavel: true,
+    },
+    {
+      icon: Fingerprint,
+      label: 'CPF',
+      value: usuario.cpf ? mascararCpf(usuario.cpf) : undefined,
+      copiavel: true,
+    },
+    { icon: Cake, label: 'Nascimento', value: usuario.dataNascimento ?? undefined },
+    {
+      icon: VenusAndMars,
+      label: 'Sexo',
+      value:
+        usuario.sexo === 1
+          ? 'Masculino'
+          : usuario.sexo === 0
+            ? 'Feminino'
+            : undefined,
+    },
+    { icon: Heart, label: 'Estado civil', value: usuario.estadoCivil ?? undefined },
+    {
+      icon: MapPin,
+      label: 'Naturalidade',
+      value: usuario.cidade
+        ? `${usuario.cidade}${usuario.estado ? ` - ${usuario.estado}` : ''}`
+        : undefined,
+    },
+    {
+      icon: IdCard,
+      label: 'PIS',
+      value: usuario.pis ?? undefined,
+      copiavel: true,
+    },
+    {
+      icon: Landmark,
+      label: 'Conta bancária',
+      value: usuario.numeroConta
+        ? `${usuario.numeroBanco ? `${usuario.numeroBanco} • ` : ''}${usuario.numeroConta}${usuario.digitoConta ? `-${usuario.digitoConta}` : ''}`
+        : undefined,
+      copiavel: true,
+    },
     { icon: Briefcase, label: 'Função', value: usuario.funcao },
     { icon: Building2, label: 'Departamento', value: usuario.departamento },
     {

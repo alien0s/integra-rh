@@ -7,6 +7,7 @@ export type ConfiguracoesSection =
   | 'perfil'
   | 'conta'
   | 'aparencia'
+  | 'ferias'
   | 'notificacoes'
   | 'exibicao'
 

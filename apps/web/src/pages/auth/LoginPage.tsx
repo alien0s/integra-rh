@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from "react-router-dom"
 
 import { AppLogo } from "@/features/app/components"
 import { LoginForm } from "@/features/auth/components"
+import { useAuth } from "@/features/auth/context"
 
 /**
  * Tela pública de autenticação do ERP.
@@ -13,6 +14,7 @@ import { LoginForm } from "@/features/auth/components"
  */
 export function LoginPage() {
   const navigate = useNavigate()
+  const { entrar } = useAuth()
   const [searchParams, setSearchParams] = useSearchParams()
   const [error, setError] = useState<string | null>(null)
 
@@ -21,7 +23,7 @@ export function LoginPage() {
     const err = searchParams.get("error")
 
     if (token) {
-      localStorage.setItem("token", token)
+      entrar(token)
       navigate("/home", { replace: true })
       return
     }
@@ -32,7 +34,7 @@ export function LoginPage() {
       searchParams.delete("error")
       setSearchParams(searchParams, { replace: true })
     }
-  }, [searchParams, setSearchParams, navigate])
+  }, [searchParams, setSearchParams, navigate, entrar])
 
   return (
     <main className="flex min-h-screen flex-col items-center justify-center bg-muted/40 px-4 py-10">

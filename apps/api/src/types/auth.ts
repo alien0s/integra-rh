@@ -16,3 +16,22 @@ export interface LoginRequestBody {
   email: string;
   password: string;
 }
+
+export interface CheckEmailBody {
+  email: string;
+}
+
+export interface CheckEmailResponse {
+  /** 'login' = já tem senha; 'criar-senha' = 1º acesso, precisa definir. */
+  mode: "login" | "criar-senha";
+}
+
+export interface SetPasswordBody {
+  email: string;
+  password: string;
+}
+
+export interface UpdateMeuPerfilBody {
+  cpf: string | null;
+  telefone: string | null;
+}

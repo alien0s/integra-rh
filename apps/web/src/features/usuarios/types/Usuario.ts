@@ -18,8 +18,22 @@ export interface Usuario {
   dataDemissao?: string
   gestor?: string
   ultimoAcesso?: string
-  /** Papéis do usuário (role_name). */
-  roles?: string[]
+  /** Papel/perfil de acesso — código (ex.: "ADMIN"), único por usuário. */
+  papelCodigo?: string | null
+  /** Nome do papel para exibição (ex.: "Administrador do sistema"). */
+  papel?: string | null
+  /** Dados pessoais/bancários (espelham a tabela users). */
+  dataNascimento?: string | null
+  /** Sexo: 1 = masculino, 0 = feminino. */
+  sexo?: number | null
+  estadoCivil?: string | null
+  cidade?: string | null
+  /** UF (2 letras). */
+  estado?: string | null
+  pis?: string | null
+  numeroBanco?: string | null
+  numeroConta?: string | null
+  digitoConta?: string | null
 }
 
 /** Papel disponível para seleção (código + rótulo). */
@@ -60,5 +74,6 @@ export interface AtualizarUsuarioInput {
   telefone: string | null
   departamentoId: string | null
   funcaoId: string | null
-  roles: string[]
+  /** Código do papel/perfil de acesso (ex.: "ADMIN") ou null. */
+  roleCodigo: string | null
 }

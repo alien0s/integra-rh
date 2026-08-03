@@ -1,5 +1,5 @@
 import type { LucideIcon } from 'lucide-react'
-import { Bell, Monitor, Palette, User, UserCog } from 'lucide-react'
+import { Bell, Monitor, Palette, Palmtree, User, UserCog } from 'lucide-react'
 
 import { cn } from '@/lib/utils'
 
@@ -14,6 +14,7 @@ const items: { id: ConfiguracoesSection; label: string; icon: LucideIcon }[] = [
   { id: 'perfil', label: 'Perfil', icon: User },
   { id: 'conta', label: 'Conta', icon: UserCog },
   { id: 'aparencia', label: 'Aparência', icon: Palette },
+  { id: 'ferias', label: 'Férias', icon: Palmtree },
   { id: 'notificacoes', label: 'Notificações', icon: Bell },
   { id: 'exibicao', label: 'Exibição', icon: Monitor },
 ]

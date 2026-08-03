@@ -72,8 +72,10 @@ export async function usuariosRoutes(app: FastifyInstance) {
       try {
         const { body, contentType } = await getObjectStream(key);
         reply.header("Content-Type", contentType);
-        // Evita servir foto antiga após uma troca (a URL é estável).
-        reply.header("Cache-Control", "no-cache");
+        // Cache curto no navegador: evita refetch (e "flash") a cada navegação,
+        // já que a sidebar remonta. Após trocar a foto, o front adiciona um
+        // ?t=timestamp para furar o cache e exibir a nova na hora.
+        reply.header("Cache-Control", "private, max-age=60");
         return reply.send(body);
       } catch {
         return reply.code(404).send({ message: "Avatar indisponível" });
@@ -101,7 +103,7 @@ export async function usuariosRoutes(app: FastifyInstance) {
             telefone: { type: ["string", "null"] },
             departamentoId: { type: ["string", "null"] },
             funcaoId: { type: ["string", "null"] },
-            roles: { type: "array", items: { type: "string" } },
+            roleCodigo: { type: ["string", "null"] },
           },
           additionalProperties: false,
         },
