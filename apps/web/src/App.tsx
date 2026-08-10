@@ -6,6 +6,7 @@ import { CursosPage } from "@/features/cursos"
 import { FeriasPage } from "@/features/ferias"
 import { PontoPage } from "@/features/ponto"
 import { ConfiguracoesPage } from "@/features/configuracoes"
+import { TabelasPage } from "@/features/tabelas"
 import { UsuariosPage } from "@/features/usuarios"
 import { LANDING_ROUTE } from "@/lib/auth"
 import { HomePage } from "@/pages/home/HomePage"
@@ -37,6 +38,7 @@ export function App() {
           <Route path="/configuracoes" element={<ConfiguracoesPage />} />
           <Route path="/usuarios" element={<UsuariosPage />} />
           <Route path="/usuarios/:usuarioId" element={<UsuarioPerfil />} />
+          <Route path="/tabelas" element={<TabelasPage />} />
         </Route>
 
         <Route path="/" element={<Navigate to={LANDING_ROUTE} replace />} />

@@ -9,6 +9,7 @@ import {
   definirSenhaUsuario,
   findOrCreateUsuarioLocal,
   getUsuarioAuthPorEmail,
+  updateUserAvatar,
   type AppUser,
   type UsuarioDetalhado,
 } from "../lib/database.js";
@@ -39,6 +40,7 @@ function paraAuthUser(user: AppUser): AuthUser {
     departamento: user.departamento ?? undefined,
     funcao: user.funcao ?? undefined,
     avatar: user.avatarUrl ?? undefined,
+    papelCodigo: user.papelCodigo ?? undefined,
   };
 }
 
@@ -55,6 +57,8 @@ export async function authRoutes(app: FastifyInstance) {
     "/auth/login",
     {
       schema: {
+        tags: ["Autenticação (LDAP) PADRÃO"],
+        summary: "Login com e-mail e senha do AD (LDAP)",
         body: {
           type: "object",
           required: ["email", "password"],
@@ -76,9 +80,10 @@ export async function authRoutes(app: FastifyInstance) {
           .send({ message: `Use seu e-mail corporativo (${DOMINIO_CORP}).` });
       }
 
+      let resultadoLdap;
       try {
-        const autenticado = await authenticateWithLdap(email, password);
-        if (!autenticado) {
+        resultadoLdap = await authenticateWithLdap(email, password);
+        if (!resultadoLdap.ok) {
           return reply.code(401).send({ message: "Credenciais inválidas" });
         }
       } catch (error) {
@@ -91,7 +96,16 @@ export async function authRoutes(app: FastifyInstance) {
         throw error;
       }
 
-      const user = await findOrCreateUsuarioLocal(email);
+      let user = await findOrCreateUsuarioLocal(email);
+
+      // Só preenche a foto com a do AD se o usuário ainda não tiver nenhuma
+      // (avatar_url vazio) — não sobrescreve uma foto já existente (ex.:
+      // enviada manualmente). Só acontece no login.
+      if (resultadoLdap.avatarDataUri && !user.avatarUrl) {
+        const atualizado = await updateUserAvatar(user.id, resultadoLdap.avatarDataUri);
+        if (atualizado) user = atualizado;
+      }
+
       const authUser = paraAuthUser(user);
       return { token: signAuthToken(authUser), user: authUser };
     },
@@ -110,6 +124,8 @@ export async function authRoutes(app: FastifyInstance) {
     "/auth/local/check-email",
     {
       schema: {
+        tags: ["Autenticação com senha no banco local (Teste)"],
+        summary: "Verifica se o e-mail já tem senha (login) ou é 1º acesso",
         body: {
           type: "object",
           required: ["email"],
@@ -138,6 +154,8 @@ export async function authRoutes(app: FastifyInstance) {
     "/auth/local/login",
     {
       schema: {
+        tags: ["Autenticação"],
+        summary: "Login com e-mail e senha do sistema (não usa o AD)",
         body: {
           type: "object",
           required: ["email", "password"],
@@ -179,6 +197,8 @@ export async function authRoutes(app: FastifyInstance) {
     "/auth/local/set-password",
     {
       schema: {
+        tags: ["Autenticação"],
+        summary: "1º acesso: define a senha do login do sistema",
         body: {
           type: "object",
           required: ["email", "password"],
@@ -225,11 +245,21 @@ export async function authRoutes(app: FastifyInstance) {
 
   app.get<{
     Reply: ApiResponse<AuthUser> | { message: string };
-  }>("/auth/me", { onRequest: [app.authenticate] }, async (request) => {
-    return {
-      data: request.user,
-    };
-  });
+  }>(
+    "/auth/me",
+    {
+      onRequest: [app.authenticate],
+      schema: {
+        tags: ["Autenticação"],
+        summary: "Dados do usuário autenticado (a partir do token)",
+      },
+    },
+    async (request) => {
+      return {
+        data: request.user,
+      };
+    },
+  );
 
   /**
    * Atualização do próprio perfil (self-service): apenas cpf e telefone.
@@ -243,6 +273,8 @@ export async function authRoutes(app: FastifyInstance) {
     {
       onRequest: [app.authenticate],
       schema: {
+        tags: ["Autenticação"],
+        summary: "Atualiza o próprio perfil (cpf/telefone)",
         body: {
           type: "object",
           properties: {

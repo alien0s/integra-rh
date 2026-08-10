@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify";
 
 import {
   atualizarUsuario,
+  excluirUsuario,
   getUsuarioAvatarKey,
   getUsuarioPorId,
   listDepartamentos,
@@ -12,6 +13,11 @@ import {
   type UsuarioDetalhado,
 } from "../lib/database.js";
 import { getObjectStream } from "../lib/storage.js";
+import {
+  importarUsuarios,
+  parsePlanilhaUsuarios,
+  type ResultadoImportacao,
+} from "../lib/importUsuarios.js";
 import type { ApiListResponse, ApiResponse } from "../types/api.js";
 
 /**
@@ -26,7 +32,10 @@ export async function usuariosRoutes(app: FastifyInstance) {
    */
   app.get<{ Reply: ApiListResponse<UsuarioDetalhado> }>(
     "/usuarios",
-    { onRequest: [app.authenticate] },
+    {
+      onRequest: [app.authenticate],
+      schema: { tags: ["Usuários"], summary: "Lista todos os usuários" },
+    },
     async () => {
       const usuarios = await listUsuarios();
       return { data: usuarios, total: usuarios.length };
@@ -42,7 +51,10 @@ export async function usuariosRoutes(app: FastifyInstance) {
     Reply: ApiResponse<UsuarioDetalhado> | { message: string };
   }>(
     "/usuarios/:usuarioId",
-    { onRequest: [app.authenticate] },
+    {
+      onRequest: [app.authenticate],
+      schema: { tags: ["Usuários"], summary: "Busca um usuário pelo id" },
+    },
     async (request, reply) => {
       const usuario = await getUsuarioPorId(request.params.usuarioId);
 
@@ -62,6 +74,13 @@ export async function usuariosRoutes(app: FastifyInstance) {
    */
   app.get<{ Params: { usuarioId: string } }>(
     "/usuarios/:usuarioId/avatar",
+    {
+      schema: {
+        tags: ["Usuários"],
+        summary: "Stream da foto do usuário (pública, sem auth)",
+        security: [],
+      },
+    },
     async (request, reply) => {
       const key = await getUsuarioAvatarKey(request.params.usuarioId);
 
@@ -96,6 +115,8 @@ export async function usuariosRoutes(app: FastifyInstance) {
     {
       onRequest: [app.authenticate],
       schema: {
+        tags: ["Usuários"],
+        summary: "Atualiza cpf, telefone, departamento, função ou papel",
         body: {
           type: "object",
           properties: {
@@ -134,11 +155,117 @@ export async function usuariosRoutes(app: FastifyInstance) {
   );
 
   /**
+   * POST /usuarios/importar — importa usuários de uma planilha (CSV/Excel).
+   * Aceita multipart com um arquivo (`file`) OU um campo `url` (o servidor
+   * baixa a planilha). Lê e-mail, nome e entidade; cria os que ainda não
+   * existem e devolve um resumo.
+   */
+  app.post<{ Reply: ApiResponse<ResultadoImportacao> | { message: string } }>(
+    "/usuarios/importar",
+    {
+      onRequest: [app.authenticate],
+      schema: {
+        tags: ["Usuários"],
+        summary: "Importa usuários de CSV/Excel (arquivo ou URL)",
+        consumes: ["multipart/form-data"],
+      },
+    },
+    async (request, reply) => {
+      let buffer: Buffer | null = null;
+      let url = "";
+
+      // Lê as partes: arquivo (file) e/ou campo de texto (url).
+      for await (const part of request.parts()) {
+        if (part.type === "file") {
+          buffer = await part.toBuffer();
+        } else if (part.fieldname === "url" && typeof part.value === "string") {
+          url = part.value.trim();
+        }
+      }
+
+      // Sem arquivo, mas com URL: o servidor baixa (só http/https — evita SSRF
+      // para outros esquemas como file://).
+      if (!buffer && url) {
+        let protocolo = "";
+        try {
+          protocolo = new URL(url).protocol;
+        } catch {
+          return reply.code(400).send({ message: "URL inválida." });
+        }
+        if (protocolo !== "http:" && protocolo !== "https:") {
+          return reply.code(400).send({ message: "A URL deve ser http(s)." });
+        }
+        try {
+          const resposta = await fetch(url);
+          if (!resposta.ok) {
+            return reply.code(400).send({
+              message: `Não foi possível baixar a planilha (HTTP ${resposta.status}).`,
+            });
+          }
+          buffer = Buffer.from(await resposta.arrayBuffer());
+        } catch {
+          return reply
+            .code(400)
+            .send({ message: "Falha ao baixar a planilha da URL." });
+        }
+      }
+
+      if (!buffer || buffer.length === 0) {
+        return reply
+          .code(400)
+          .send({ message: "Envie um arquivo (CSV/Excel) ou uma URL." });
+      }
+
+      let linhas;
+      try {
+        linhas = parsePlanilhaUsuarios(buffer);
+      } catch {
+        return reply.code(400).send({
+          message: "Não foi possível ler a planilha. Verifique o formato (CSV/Excel).",
+        });
+      }
+
+      if (linhas.length === 0) {
+        return reply
+          .code(400)
+          .send({ message: "A planilha está vazia ou sem linhas de dados." });
+      }
+
+      const resultado = await importarUsuarios(linhas);
+      return { data: resultado };
+    },
+  );
+
+  /**
+   * DELETE /usuarios/:usuarioId — exclui um usuário.
+   */
+  app.delete<{
+    Params: { usuarioId: string };
+    Reply: { message: string };
+  }>(
+    "/usuarios/:usuarioId",
+    { onRequest: [app.authenticate] },
+    async (request, reply) => {
+      const excluido = await excluirUsuario(request.params.usuarioId);
+      if (!excluido) {
+        return reply.code(404).send({ message: "Usuário não encontrado" });
+      }
+      return reply.code(200).send({ message: "Usuário excluído" });
+    },
+  );
+
+  /**
    * GET /departamentos — opções para o dropdown de edição.
    */
   app.get<{ Reply: ApiListResponse<OpcaoSelecao> }>(
     "/departamentos",
-    { onRequest: [app.authenticate] },
+    {
+      onRequest: [app.authenticate],
+      schema: {
+        tags: ["Usuários"],
+        summary: "Opções de departamento para o formulário de usuário",
+      },
+    },
     async () => {
       const departamentos = await listDepartamentos();
       return { data: departamentos, total: departamentos.length };
@@ -150,7 +277,13 @@ export async function usuariosRoutes(app: FastifyInstance) {
    */
   app.get<{ Reply: ApiListResponse<OpcaoSelecao> }>(
     "/funcoes",
-    { onRequest: [app.authenticate] },
+    {
+      onRequest: [app.authenticate],
+      schema: {
+        tags: ["Usuários"],
+        summary: "Opções de função para o formulário de usuário",
+      },
+    },
     async () => {
       const funcoes = await listFuncoes();
       return { data: funcoes, total: funcoes.length };

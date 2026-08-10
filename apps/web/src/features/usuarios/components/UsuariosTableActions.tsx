@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import {
   Download,
   FileSpreadsheet,
@@ -7,6 +8,7 @@ import {
   Search,
   SlidersHorizontal,
   Table2,
+  Upload,
 } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
@@ -18,6 +20,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { Input } from '@/components/ui/input'
+import { ImportarUsuariosDialog } from '@/features/usuarios/components/ImportarUsuariosDialog'
 import {
   exportarUsuariosExcel,
   exportarUsuariosPdf,
@@ -37,6 +40,8 @@ interface UsuariosTableActionsProps {
   onSearchChange: (value: string) => void
   onVisibleColumnsChange: (columns: UsuarioTableColumn[]) => void
   onViewChange: (view: UsuarioView) => void
+  /** Chamado após uma importação bem-sucedida (para recarregar a lista). */
+  onImportComplete?: () => void
 }
 
 const viewButtonClassName =
@@ -61,7 +66,10 @@ export function UsuariosTableActions({
   onSearchChange,
   onVisibleColumnsChange,
   onViewChange,
+  onImportComplete,
 }: UsuariosTableActionsProps) {
+  const [importarAberto, setImportarAberto] = useState(false)
+
   function handleColumnVisibilityChange(
     column: UsuarioTableColumn,
     checked: boolean
@@ -149,6 +157,15 @@ export function UsuariosTableActions({
         >
           <MoreHorizontal className="h-4 w-4" />
         </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          className="bg-background"
+          onClick={() => setImportarAberto(true)}
+        >
+          <Upload className="h-4 w-4" />
+          Importar
+        </Button>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant="outline" size="sm" className="bg-background">
@@ -168,6 +185,12 @@ export function UsuariosTableActions({
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
+
+      <ImportarUsuariosDialog
+        open={importarAberto}
+        onOpenChange={setImportarAberto}
+        onImported={onImportComplete}
+      />
     </div>
   )
 }

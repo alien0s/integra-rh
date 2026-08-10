@@ -2,18 +2,13 @@ import type { ComponentProps } from "react"
 import {
   BookOpen,
   Bot,
-  Building2,
-  CalendarClock,
   ClipboardList,
   Fingerprint,
-  Frame,
   GraduationCap,
   Home,
-  Map,
-  MoreHorizontal,
   Palmtree,
-  PieChart,
   Settings,
+  Table2,
   UsersRound,
 } from "lucide-react"
 
@@ -79,34 +74,9 @@ const sidebarData = {
       icon: Settings,
     },
     {
-      title: "Admissões",
-      url: "#",
-      icon: Frame,
-    },
-    {
-      title: "Relatórios RH",
-      url: "#",
-      icon: PieChart,
-    },
-    {
-      title: "Escalas",
-      url: "#",
-      icon: CalendarClock,
-    },
-    {
-      title: "Unidades",
-      url: "#",
-      icon: Map,
-    },
-    {
-      title: "Centro de custos",
-      url: "#",
-      icon: Building2,
-    },
-    {
-      title: "Mais",
-      url: "#",
-      icon: MoreHorizontal,
+      title: "Tabelas",
+      url: "/tabelas",
+      icon: Table2,
     },
   ],
 }

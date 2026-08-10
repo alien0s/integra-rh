@@ -1,4 +1,4 @@
-import * as ldap from "ldapjs";
+import ldap from "ldapjs";
 
 import { type ApiConfig, getApiConfig } from "../plugins/env.js";
 
@@ -7,6 +7,13 @@ export class LdapUnavailableError extends Error {
     super(message);
     this.name = "LdapUnavailableError";
   }
+}
+
+/** Resultado da autenticação: se autenticou e, quando disponível, a foto do AD. */
+export interface LdapAuthResult {
+  ok: boolean;
+  /** Foto do AD (thumbnailPhoto/jpegPhoto) já como data URI, ou null se não houver. */
+  avatarDataUri: string | null;
 }
 
 function hasLdapConfig(config: ApiConfig["ldap"]) {
@@ -19,6 +26,20 @@ function hasLdapConfig(config: ApiConfig["ldap"]) {
   );
 }
 
+/** Monta a foto (thumbnailPhoto/jpegPhoto) como data URI, se o atributo existir. */
+function extrairAvatarDataUri(entry: ldap.SearchEntry): string | null {
+  const attr = entry.attributes.find(
+    (a) => a.type === "thumbnailPhoto" || a.type === "jpegPhoto"
+  );
+  const buffer = attr?.buffers[0];
+
+  if (!buffer || buffer.length === 0) {
+    return null;
+  }
+
+  return `data:image/jpeg;base64,${buffer.toString("base64")}`;
+}
+
 /**
  * Autentica credenciais contra LDAP.
  * Enquanto LDAP_ENABLED=false em desenvolvimento, permite login sem conectar no LDAP.
@@ -26,7 +47,7 @@ function hasLdapConfig(config: ApiConfig["ldap"]) {
 export async function authenticateWithLdap(
   email: string,
   password: string
-): Promise<boolean> {
+): Promise<LdapAuthResult> {
   const config = getApiConfig();
 
   if (!config.ldap.enabled) {
@@ -35,7 +56,7 @@ export async function authenticateWithLdap(
     }
 
     console.warn("AVISO: LDAP desabilitado. Simulando autenticação em desenvolvimento.");
-    return true;
+    return { ok: true, avatarDataUri: null };
   }
 
   if (!hasLdapConfig(config.ldap)) {
@@ -44,9 +65,19 @@ export async function authenticateWithLdap(
 
   const ldapConfig = config.ldap;
 
+  if (!ldapConfig.tlsRejectUnauthorized) {
+    console.warn(
+      "AVISO: LDAP_TLS_REJECT_UNAUTHORIZED=false — verificação do certificado " +
+        "TLS do LDAPS desligada. Use só temporariamente (nunca em produção).",
+    );
+  }
+
+  const tlsOptions = { rejectUnauthorized: ldapConfig.tlsRejectUnauthorized };
+
   return new Promise((resolve, reject) => {
     const client = ldap.createClient({
-      url: ldapConfig.url
+      url: ldapConfig.url,
+      tlsOptions
     });
 
     client.on("error", (err) => {
@@ -67,7 +98,7 @@ export async function authenticateWithLdap(
       const searchOptions: ldap.SearchOptions = {
         filter,
         scope: "sub",
-        attributes: ["dn"]
+        attributes: ["dn", "userPrincipalName", "thumbnailPhoto", "jpegPhoto"]
       };
 
       client.search(ldapConfig.searchBase, searchOptions, (searchErr, res) => {
@@ -79,9 +110,14 @@ export async function authenticateWithLdap(
         }
 
         let userDn: string | null = null;
+        let userPrincipalName: string | null = null;
+        let avatarDataUri: string | null = null;
 
         res.on("searchEntry", (entry) => {
           userDn = entry.dn.toString();
+          userPrincipalName =
+            entry.attributes.find((attr) => attr.type === "userPrincipalName")?.values[0] ?? null;
+          avatarDataUri = extrairAvatarDataUri(entry);
         });
 
         res.on("error", (err) => {
@@ -92,24 +128,34 @@ export async function authenticateWithLdap(
         res.on("end", () => {
           if (!userDn) {
             client.unbind((_) => {});
-            return resolve(false);
+            return resolve({ ok: false, avatarDataUri: null });
           }
 
-          const userClient = ldap.createClient({ url: ldapConfig.url });
+          // Usa o userPrincipalName (ASCII, ex.: nome@dominio) em vez do DN
+          // sempre que possível: o DN vem com caracteres não-ASCII (ex.: "ç",
+          // "ã" em nomes/departamentos) escapados em hexadecimal por
+          // entry.dn.toString() (RFC 4514), mas o ldapjs manda esse texto
+          // escapado literalmente no bind em vez de decodificar de volta para
+          // os bytes reais — o AD não reconhece esse DN "escapado" como o DN
+          // de verdade e recusa com "Invalid Credentials", mesmo com a senha
+          // certa. userPrincipalName evita esse problema por ser só ASCII.
+          const identidadeBind = userPrincipalName ?? userDn;
+
+          const userClient = ldap.createClient({ url: ldapConfig.url, tlsOptions });
 
           userClient.on("error", () => {
             userClient.unbind((_) => {});
           });
 
-          userClient.bind(userDn, password, (userBindErr) => {
+          userClient.bind(identidadeBind, password, (userBindErr) => {
             userClient.unbind((_) => {});
             client.unbind((_) => {});
 
             if (userBindErr) {
-              return resolve(false);
+              return resolve({ ok: false, avatarDataUri: null });
             }
 
-            return resolve(true);
+            return resolve({ ok: true, avatarDataUri });
           });
         });
       });

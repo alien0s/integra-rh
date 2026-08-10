@@ -1,4 +1,5 @@
 export interface AuthUser {
+  papelCodigo?: string;
   id: string;
   email: string;
   nome: string;

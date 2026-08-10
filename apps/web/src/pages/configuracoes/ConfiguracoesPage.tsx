@@ -60,6 +60,12 @@ export function ConfiguracoesPage() {
     recarregar()
   }
 
+  async function removerAvatar() {
+    if (!authUser) return
+    await usuariosService.removerAvatar(authUser.id)
+    recarregar()
+  }
+
   return (
     <AppLayout
       title="Configurações"
@@ -87,6 +93,7 @@ export function ConfiguracoesPage() {
                 isSaving={salvando}
                 onSalvar={salvarPerfil}
                 onUploadAvatar={enviarAvatar}
+                onRemoveAvatar={removerAvatar}
               />
             ))}
           {secao === 'aparencia' && <AparenciaForm />}

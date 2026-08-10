@@ -16,6 +16,10 @@ export interface ApiConfig {
     bindCredentials: string;
     searchBase: string;
     searchFilter: string;
+    // Verificação do certificado TLS (LDAPS). Só desligue temporariamente,
+    // enquanto o certificado da CA interna não está configurado — nunca deixe
+    // false em produção (permite ataque man-in-the-middle).
+    tlsRejectUnauthorized: boolean;
   };
   database: {
     host: string;
@@ -84,7 +88,9 @@ export function getApiConfig(): ApiConfig {
       bindDn: readEnv("LDAP_BIND_DN"),
       bindCredentials: readEnv("LDAP_BIND_CREDENTIALS"),
       searchBase: readEnv("LDAP_SEARCH_BASE"),
-      searchFilter: readEnv("LDAP_SEARCH_FILTER", "(mail={{email}})")
+      searchFilter: readEnv("LDAP_SEARCH_FILTER", "(mail={{email}})"),
+      // Seguro por padrão: só vira false com LDAP_TLS_REJECT_UNAUTHORIZED=false.
+      tlsRejectUnauthorized: readEnv("LDAP_TLS_REJECT_UNAUTHORIZED", "true") !== "false"
     },
     database: {
       host: readEnv("DB_HOST", "localhost"),

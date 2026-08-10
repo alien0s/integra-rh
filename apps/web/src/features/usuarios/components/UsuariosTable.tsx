@@ -2,6 +2,16 @@ import { useMemo, useState } from 'react'
 
 import { ChevronDown, Ellipsis, Pencil, Trash2 } from 'lucide-react'
 
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -29,6 +39,7 @@ interface UsuariosTableProps {
   visibleColumns: UsuarioTableColumn[]
   onSelectUsuario?: (usuarioId: string) => void
   onEditarUsuario?: (usuario: Usuario) => void
+  onExcluirUsuario?: (usuarioId: string) => Promise<unknown> | void
 }
 
 const statusClassName = {
@@ -46,11 +57,30 @@ export function UsuariosTable({
   visibleColumns,
   onSelectUsuario,
   onEditarUsuario,
+  onExcluirUsuario,
 }: UsuariosTableProps) {
   const [selectedDepartamentos, setSelectedDepartamentos] = useState<string[]>(
     []
   )
   const [selectedFuncoes, setSelectedFuncoes] = useState<string[]>([])
+  // Usuário aguardando confirmação de exclusão (null = dialog fechado).
+  const [usuarioParaExcluir, setUsuarioParaExcluir] = useState<Usuario | null>(
+    null
+  )
+  const [excluindo, setExcluindo] = useState(false)
+
+  async function confirmarExclusao() {
+    if (!usuarioParaExcluir) return
+    setExcluindo(true)
+    try {
+      await onExcluirUsuario?.(usuarioParaExcluir.id)
+      setUsuarioParaExcluir(null)
+    } catch (erro) {
+      console.error(erro)
+    } finally {
+      setExcluindo(false)
+    }
+  }
 
   const allDepartamentos = useMemo(
     () =>
@@ -95,6 +125,7 @@ export function UsuariosTable({
   const hasVisibleColumns = activeColumnCount > 0
 
   return (
+    <>
     <Card className="overflow-hidden shadow-none">
       <CardContent className="p-0">
         <Table>
@@ -284,7 +315,10 @@ export function UsuariosTable({
                           Editar
                         </DropdownMenuItem>
                         <DropdownMenuSeparator />
-                        <DropdownMenuItem className="text-red-600 focus:text-red-600 dark:text-red-400 dark:focus:text-red-400">
+                        <DropdownMenuItem
+                          className="text-red-600 focus:text-red-600 dark:text-red-400 dark:focus:text-red-400"
+                          onSelect={() => setUsuarioParaExcluir(usuario)}
+                        >
                           <Trash2 className="h-4 w-4" />
                           Excluir
                         </DropdownMenuItem>
@@ -309,5 +343,39 @@ export function UsuariosTable({
         </Table>
       </CardContent>
     </Card>
+
+    <AlertDialog
+      open={usuarioParaExcluir !== null}
+      onOpenChange={(aberto) => {
+        if (!aberto && !excluindo) setUsuarioParaExcluir(null)
+      }}
+    >
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Excluir usuário</AlertDialogTitle>
+          <AlertDialogDescription>
+            Tem certeza que deseja excluir{' '}
+            <span className="font-medium text-foreground">
+              {usuarioParaExcluir?.nome}
+            </span>
+            ? Esta ação não pode ser desfeita.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={excluindo}>Cancelar</AlertDialogCancel>
+          <AlertDialogAction
+            className="bg-red-600 text-white transition-colors hover:bg-red-700 dark:bg-red-600 dark:text-white dark:hover:bg-red-500"
+            disabled={excluindo}
+            onClick={(event) => {
+              event.preventDefault()
+              confirmarExclusao()
+            }}
+          >
+            {excluindo ? 'Excluindo…' : 'Excluir'}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+    </>
   )
 }

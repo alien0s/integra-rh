@@ -63,6 +63,12 @@ export async function microsoftOAuthPlugin(app: FastifyInstance) {
   // como login_hint, fazendo a Microsoft já abrir com o email preenchido.
   app.get<{ Querystring: { login_hint?: string } }>(
     '/auth/microsoft',
+    {
+      schema: {
+        tags: ['Autenticação'],
+        summary: 'Inicia o login via SSO Microsoft (redireciona para a Microsoft)',
+      },
+    },
     async (request, reply) => {
       const uri = await app.microsoftOAuth2.generateAuthorizationUri(request, reply);
       const loginHint = request.query.login_hint?.trim();
@@ -77,45 +83,54 @@ export async function microsoftOAuthPlugin(app: FastifyInstance) {
     },
   );
 
-  app.get('/auth/microsoft/callback', async (request, reply) => {
-    try {
-      const tokenResponse =
-        await app.microsoftOAuth2.getAccessTokenFromAuthorizationCodeFlow(request, reply);
-      const accessToken = tokenResponse.token.access_token as string;
+  app.get(
+    '/auth/microsoft/callback',
+    {
+      schema: {
+        tags: ['Autenticação'],
+        summary: 'Callback do SSO Microsoft — troca o code por token e redireciona ao front',
+      },
+    },
+    async (request, reply) => {
+      try {
+        const tokenResponse =
+          await app.microsoftOAuth2.getAccessTokenFromAuthorizationCodeFlow(request, reply);
+        const accessToken = tokenResponse.token.access_token as string;
 
-      const [msUser, avatar] = await Promise.all([
-        getMicrosoftUserInfo(accessToken),
-        getMicrosoftUserAvatar(accessToken),
-      ]);
+        const [msUser, avatar] = await Promise.all([
+          getMicrosoftUserInfo(accessToken),
+          getMicrosoftUserAvatar(accessToken),
+        ]);
 
-      const email = msUser.mail ?? msUser.userPrincipalName;
+        const email = msUser.mail ?? msUser.userPrincipalName;
 
-      const dbUser = await findOrCreateUser({
-        email,
-        nome: msUser.displayName,
-        avatarUrl: avatar ?? null,
-      });
+        const dbUser = await findOrCreateUser({
+          email,
+          nome: msUser.displayName,
+          avatarUrl: avatar ?? null,
+        });
 
-      const authUser: AuthUser = {
-        id: dbUser.id,
-        email: dbUser.email,
-        nome: dbUser.nome,
-        avatar: dbUser.avatarUrl ?? undefined,
-        departamento: dbUser.departamento ?? undefined,
-        funcao: dbUser.funcao ?? undefined,
-      };
+        const authUser: AuthUser = {
+          id: dbUser.id,
+          email: dbUser.email,
+          nome: dbUser.nome,
+          avatar: dbUser.avatarUrl ?? undefined,
+          departamento: dbUser.departamento ?? undefined,
+          funcao: dbUser.funcao ?? undefined,
+        };
 
-      const token = signAuthToken(authUser);
+        const token = signAuthToken(authUser);
 
-      return reply.redirect(
-        `${config.frontendUrl}/login?token=${encodeURIComponent(token)}`,
-      );
-    } catch (error) {
-      const motivo = descreverErro(error);
-      request.log.error({ error }, `Falha no login Microsoft: ${motivo}`);
-      return reply.redirect(
-        `${config.frontendUrl}/login?error=${encodeURIComponent(motivo)}`,
-      );
-    }
-  });
+        return reply.redirect(
+          `${config.frontendUrl}/login?token=${encodeURIComponent(token)}`,
+        );
+      } catch (error) {
+        const motivo = descreverErro(error);
+        request.log.error({ error }, `Falha no login Microsoft: ${motivo}`);
+        return reply.redirect(
+          `${config.frontendUrl}/login?error=${encodeURIComponent(motivo)}`,
+        );
+      }
+    },
+  );
 }

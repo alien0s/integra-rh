@@ -5,6 +5,17 @@ import type {
   Usuario,
 } from '@/features/usuarios/types'
 
+/** Resumo devolvido pela importação de usuários (CSV/Excel). */
+export interface ResultadoImportacao {
+  total: number
+  criados: number
+  /** Já existiam e tiveram entidade/departamento preenchidos. */
+  atualizados: number
+  /** Já existiam e nada mudou. */
+  ignorados: number
+  erros: { linha: number; email?: string; motivo: string }[]
+}
+
 /**
  * Service de Usuários — chamadas HTTP puras à API (sem estado/UI).
  * A API retorna os campos já no formato do tipo `Usuario`.
@@ -99,6 +110,66 @@ export const usuariosService = {
     const url = resolverFotoUrl(json.url)
     const separador = url.includes('?') ? '&' : '?'
     return { url: `${url}${separador}t=${Date.now()}` }
+  },
+
+  /**
+   * Importa usuários de uma planilha (CSV/Excel) por arquivo ou URL.
+   * Retorna o resumo (criados, ignorados, erros por linha).
+   */
+  async importarUsuarios(payload: {
+    file?: File
+    url?: string
+  }): Promise<ResultadoImportacao> {
+    const form = new FormData()
+    if (payload.file) form.append('file', payload.file)
+    if (payload.url) form.append('url', payload.url)
+
+    const response = await fetch(`${API_URL}/usuarios/importar`, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: form,
+    })
+
+    if (!response.ok) {
+      const corpo = (await response.json().catch(() => null)) as
+        | { message?: string }
+        | null
+      throw new Error(corpo?.message ?? 'Falha ao importar a planilha')
+    }
+
+    const json = (await response.json()) as { data: ResultadoImportacao }
+    return json.data
+  },
+
+  /**
+   * Exclui um usuário.
+   */
+  async excluirUsuario(id: string): Promise<void> {
+    const response = await fetch(`${API_URL}/usuarios/${id}`, {
+      method: 'DELETE',
+      headers: authHeaders(),
+    })
+
+    if (!response.ok) {
+      const corpo = (await response.json().catch(() => null)) as
+        | { message?: string }
+        | null
+      throw new Error(corpo?.message ?? 'Falha ao excluir o usuário')
+    }
+  },
+
+  /**
+   * Remove a foto do usuário (storage + avatar_url).
+   */
+  async removerAvatar(id: string): Promise<void> {
+    const response = await fetch(`${API_URL}/usuarios/${id}/avatar`, {
+      method: 'DELETE',
+      headers: authHeaders(),
+    })
+
+    if (!response.ok) {
+      throw new Error('Falha ao remover a foto')
+    }
   },
 
   /**

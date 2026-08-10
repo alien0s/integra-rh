@@ -1,0 +1,1 @@
+export { tabelasService } from './tabelasService'

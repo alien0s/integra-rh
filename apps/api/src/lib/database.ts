@@ -39,6 +39,7 @@ export async function checkDatabaseConnection() {
 
 /** Usuário da aplicação, já resolvido com nomes de departamento/função. */
 export interface AppUser {
+  papelCodigo: string | null;
   id: string;
   email: string;
   nome: string;
@@ -61,7 +62,8 @@ const SELECT_APP_USER = (sql: ReturnType<typeof postgres>) => sql`
          u.nome,
          u.avatar_url AS "avatarUrl",
          d.nome       AS departamento,
-         f.nome       AS funcao
+         f.nome       AS funcao,
+         r.codigo     AS "papelCodigo"
   FROM users u
   LEFT JOIN departments d ON d.id = u.department_id
   LEFT JOIN functions  f ON f.id = u.function_id
@@ -142,10 +144,12 @@ export async function getUsuarioAuthPorEmail(
            u.avatar_url    AS "avatarUrl",
            d.nome          AS departamento,
            f.nome          AS funcao,
+           r.codigo          AS "papelCodigo",
            u.password_hash AS "passwordHash"
     FROM users u
     LEFT JOIN departments d ON d.id = u.department_id
     LEFT JOIN functions  f ON f.id = u.function_id
+    LEFT JOIN roles      r ON r.id = u.role_id
     WHERE u.email = ${email}
     LIMIT 1
   `;
@@ -200,15 +204,20 @@ async function inserirUsuarioComLegado(
   },
 ): Promise<string> {
   const l = input.legado;
+  // Entidade: casa o Cod_Entidade do APS (ex.: "164122") com entities.codigo_aps.
+  const codigoAps =
+    l?.entidade && /^\d{6}$/.test(l.entidade) ? Number(l.entidade) : null;
+
   const [created] = await sql<{ id: string }[]>`
     INSERT INTO users (
-      email, nome, cpf, telefone,
+      entity_id, email, nome, cpf, telefone,
       data_admissao, data_nascimento, sexo, estado_civil_id,
       cidade, estado, pis,
       numero_banco, numero_conta, digito_conta,
       password_hash, role_id, last_login_at
     )
     VALUES (
+      (SELECT id FROM entities WHERE codigo_aps = ${codigoAps} LIMIT 1),
       ${input.email}, ${input.nome}, ${l?.cpf ?? null}, ${l?.telefone ?? null},
       ${l?.dataAdmissao ?? null}, ${l?.dataNascimento ?? null}, ${l?.sexo ?? null},
       (SELECT id FROM estados_civis WHERE codigo = ${l?.estadoCivilCodigo ?? null}),
@@ -262,6 +271,29 @@ export async function updateUserAvatar(
 
   const updated = await sql`
     UPDATE users SET avatar_url = ${avatarUrl} WHERE id = ${userId}
+  `;
+
+  if (updated.count === 0) {
+    return null;
+  }
+
+  const [user] = await sql<AppUser[]>`
+    ${SELECT_APP_USER(sql)}
+    WHERE u.id = ${userId}
+  `;
+
+  return user;
+}
+
+/**
+ * Remove o avatar de um usuário (avatar_url = NULL).
+ * Retorna o usuário atualizado ou null se o id não existir.
+ */
+export async function removerAvatarUsuario(userId: string): Promise<AppUser | null> {
+  const sql = getDatabase();
+
+  const updated = await sql`
+    UPDATE users SET avatar_url = NULL WHERE id = ${userId}
   `;
 
   if (updated.count === 0) {
@@ -528,6 +560,111 @@ export async function atualizarUsuario(
   return getUsuarioPorId(id);
 }
 
+/** Exclui um usuário. Retorna false se o id não existir. */
+export async function excluirUsuario(id: string): Promise<boolean> {
+  const sql = getDatabase();
+  const deleted = await sql`DELETE FROM users WHERE id = ${id}`;
+  return deleted.count > 0;
+}
+
+/* ──────────────────────────────────────────────────────────────────────────
+ * Importação de usuários (planilha CSV/Excel)
+ * ────────────────────────────────────────────────────────────────────────── */
+
+/** Retorna o id do usuário com esse e-mail, ou null. */
+export async function getUsuarioIdPorEmail(
+  email: string,
+): Promise<string | null> {
+  const sql = getDatabase();
+  const [u] = await sql<{ id: string }[]>`
+    SELECT id FROM users WHERE email = ${email} LIMIT 1
+  `;
+  return u?.id ?? null;
+}
+
+/**
+ * Preenche entidade/departamento de um usuário SÓ quando estão vazios (não
+ * sobrescreve valores já definidos). Retorna true se algo foi preenchido.
+ * Usado na reimportação para completar quem já existe.
+ */
+export async function preencherVinculosVazios(
+  id: string,
+  input: { entityId: string | null; departmentId: string | null },
+): Promise<boolean> {
+  const sql = getDatabase();
+  const updated = await sql`
+    UPDATE users SET
+      entity_id     = COALESCE(entity_id, ${input.entityId}),
+      department_id = COALESCE(department_id, ${input.departmentId})
+    WHERE id = ${id}
+      AND (
+        (entity_id IS NULL AND ${input.entityId}::uuid IS NOT NULL)
+        OR (department_id IS NULL AND ${input.departmentId}::uuid IS NOT NULL)
+      )
+  `;
+  return updated.count > 0;
+}
+
+/**
+ * Resolve a entidade a partir de uma referência da planilha: código APS
+ * (6 dígitos) ou nome (case-insensitive). Retorna o id ou null.
+ */
+export async function resolverEntidadePorReferencia(
+  ref: string,
+): Promise<string | null> {
+  const sql = getDatabase();
+  const limpo = ref.trim();
+
+  if (/^\d{6}$/.test(limpo)) {
+    const [porAps] = await sql<{ id: string }[]>`
+      SELECT id FROM entities WHERE codigo_aps = ${Number(limpo)} LIMIT 1
+    `;
+    if (porAps) return porAps.id;
+  }
+
+  const [porNome] = await sql<{ id: string }[]>`
+    SELECT id FROM entities WHERE lower(nome) = lower(${limpo}) LIMIT 1
+  `;
+  return porNome?.id ?? null;
+}
+
+/** Departamento para casamento por nome na importação. */
+export interface DepartamentoParaMatch {
+  id: string;
+  nome: string;
+}
+
+/** Lista (id, nome) dos departamentos, para casar por nome na importação. */
+export async function listDepartamentosParaMatch(): Promise<
+  DepartamentoParaMatch[]
+> {
+  const sql = getDatabase();
+  return sql<DepartamentoParaMatch[]>`
+    SELECT id, nome FROM departments ORDER BY nome
+  `;
+}
+
+/**
+ * Cria um usuário vindo de importação (planilha): e-mail, nome, entidade e
+ * departamento (quando casaram); papel base COLABORADOR. Os demais dados vêm
+ * do APS no 1º login.
+ */
+export async function criarUsuarioImportado(input: {
+  email: string;
+  nome: string;
+  entityId: string | null;
+  departmentId: string | null;
+}): Promise<void> {
+  const sql = getDatabase();
+  await sql`
+    INSERT INTO users (entity_id, department_id, email, nome, role_id)
+    VALUES (
+      ${input.entityId}, ${input.departmentId}, ${input.email}, ${input.nome},
+      (SELECT id FROM roles WHERE codigo = 'COLABORADOR')
+    )
+  `;
+}
+
 /**
  * Resolve o usuário local após um login bem-sucedido no LDAP (Microsoft AD).
  * Se já existe (por e-mail): atualiza last_login_at e retorna. Se não existe:
@@ -547,6 +684,7 @@ export async function findOrCreateUsuarioLocal(email: string): Promise<AppUser> 
       avatarUrl: existente.avatarUrl,
       departamento: existente.departamento,
       funcao: existente.funcao,
+      papelCodigo: existente.papelCodigo,
     };
   }
 

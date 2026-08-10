@@ -24,6 +24,7 @@ interface PerfilFormProps {
   isSaving?: boolean
   onSalvar: (dados: { cpf: string; telefone: string }) => void
   onUploadAvatar: (blob: Blob) => Promise<void> | void
+  onRemoveAvatar: () => Promise<void> | void
 }
 
 /**
@@ -41,6 +42,7 @@ export function PerfilForm({
   isSaving = false,
   onSalvar,
   onUploadAvatar,
+  onRemoveAvatar,
 }: PerfilFormProps) {
   const [cpf, setCpf] = useState(cpfInicial)
   const [telefone, setTelefone] = useState(telefoneInicial)
@@ -66,6 +68,7 @@ export function PerfilForm({
             iniciais={iniciais}
             className="h-20 w-20"
             onUpload={onUploadAvatar}
+            onRemove={onRemoveAvatar}
             withActions
           />
         </div>

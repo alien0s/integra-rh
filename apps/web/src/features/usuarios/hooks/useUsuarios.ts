@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 
 import type { AtualizarUsuarioInput, Usuario } from '@/features/usuarios/types'
 import { usuariosService } from '@/features/usuarios/services'
@@ -12,28 +12,22 @@ export function useUsuarios() {
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  useEffect(() => {
-    let ativo = true
-
-    async function carregar() {
-      setIsLoading(true)
-      setError(null)
-      try {
-        const data = await usuariosService.getUsuarios()
-        if (ativo) setUsuarios(data)
-      } catch {
-        if (ativo) setError('Não foi possível carregar os usuários.')
-      } finally {
-        if (ativo) setIsLoading(false)
-      }
-    }
-
-    carregar()
-
-    return () => {
-      ativo = false
+  const carregar = useCallback(async () => {
+    setIsLoading(true)
+    setError(null)
+    try {
+      const data = await usuariosService.getUsuarios()
+      setUsuarios(data)
+    } catch {
+      setError('Não foi possível carregar os usuários.')
+    } finally {
+      setIsLoading(false)
     }
   }, [])
+
+  useEffect(() => {
+    carregar()
+  }, [carregar])
 
   /**
    * Atualiza um usuário e sincroniza o item correspondente na lista local.
@@ -45,5 +39,18 @@ export function useUsuarios() {
     )
   }
 
-  return { usuarios, isLoading, error, atualizarUsuario }
+  /** Exclui um usuário e o remove da lista local. */
+  async function excluirUsuario(id: string) {
+    await usuariosService.excluirUsuario(id)
+    setUsuarios((lista) => lista.filter((u) => u.id !== id))
+  }
+
+  return {
+    usuarios,
+    isLoading,
+    error,
+    atualizarUsuario,
+    excluirUsuario,
+    recarregar: carregar,
+  }
 }

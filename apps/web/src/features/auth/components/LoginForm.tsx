@@ -1,6 +1,6 @@
 import type { ComponentProps, FormEvent, KeyboardEvent } from "react"
 import { useState } from "react"
-import { AlertCircle, KeyRound } from "lucide-react"
+import { AlertCircle, KeyRound, Loader2 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import {
@@ -129,6 +129,7 @@ export function LoginForm({ className, error, ...props }: LoginFormProps) {
                   type="submit"
                   disabled={!podeEntrar || isLoading}
                 >
+                  {isLoading ? <Loader2 className="size-4 animate-spin" /> : null}
                   {isLoading ? "Entrando…" : "Entrar"}
                 </Button>
               </Field>

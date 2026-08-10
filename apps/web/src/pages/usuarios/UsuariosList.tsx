@@ -37,7 +37,8 @@ function normalizeSearchValue(value: string) {
 export function UsuariosList() {
   const navigate = useNavigate()
   // Dados vêm da API (tabela users com JOINs).
-  const { usuarios, isLoading, error, atualizarUsuario } = useUsuarios()
+  const { usuarios, isLoading, error, atualizarUsuario, excluirUsuario, recarregar } =
+    useUsuarios()
   // Opções dos dropdowns do modal de edição.
   const { departamentos, funcoes } = useOpcoesUsuario()
   const [search, setSearch] = useState('')
@@ -98,6 +99,7 @@ export function UsuariosList() {
           onSearchChange={setSearch}
           onVisibleColumnsChange={setVisibleColumns}
           onViewChange={setView}
+          onImportComplete={recarregar}
         />
         {error ? (
           <p className="rounded-lg border border-dashed p-6 text-center text-sm text-destructive">
@@ -118,6 +120,7 @@ export function UsuariosList() {
             visibleColumns={visibleColumns}
             onSelectUsuario={(usuarioId) => navigate(`/usuarios/${usuarioId}`)}
             onEditarUsuario={setUsuarioEmEdicao}
+            onExcluirUsuario={excluirUsuario}
           />
         )}
       </div>
