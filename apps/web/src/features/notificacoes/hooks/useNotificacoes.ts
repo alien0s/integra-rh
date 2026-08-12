@@ -1,61 +1,74 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import type { Notificacao } from '@/features/notificacoes/types'
 import { notificacoesService } from '@/features/notificacoes/services'
+import { feriasService } from '@/features/ferias/services'
 
 /**
- * Hook que carrega as notificações do usuário e expõe a contagem de não lidas
- * e a ação de marcar todas como lidas.
+ * Hook das notificações do usuário logado (API): lista, contagem de não-lidas,
+ * marcar todas como lidas e responder às acionáveis (Aprovar/Recusar) — que
+ * agem no recurso de origem (ex.: a solicitação de férias) e recarregam.
  */
 export function useNotificacoes() {
   const [notificacoes, setNotificacoes] = useState<Notificacao[]>([])
   const [isLoading, setIsLoading] = useState(true)
 
-  useEffect(() => {
-    let ativo = true
-
-    async function carregar() {
-      setIsLoading(true)
-      try {
-        const data = await notificacoesService.getNotificacoes()
-        if (ativo) setNotificacoes(data)
-      } finally {
-        if (ativo) setIsLoading(false)
-      }
-    }
-
-    carregar()
-
-    return () => {
-      ativo = false
+  const carregar = useCallback(async () => {
+    setIsLoading(true)
+    try {
+      setNotificacoes(await notificacoesService.getNotificacoes())
+    } catch (error) {
+      console.error('Erro ao carregar notificações', error)
+    } finally {
+      setIsLoading(false)
     }
   }, [])
+
+  useEffect(() => {
+    carregar()
+  }, [carregar])
 
   const naoLidas = useMemo(
     () => notificacoes.filter((n) => !n.lida).length,
     [notificacoes],
   )
 
-  /** Marca todas as notificações como lidas (só no estado local por enquanto). */
-  function marcarTodasComoLidas() {
+  /** Marca todas como lidas (API + estado local). */
+  async function marcarTodasComoLidas() {
+    await notificacoesService.marcarTodasLidas()
     setNotificacoes((anteriores) =>
       anteriores.map((n) => (n.lida ? n : { ...n, lida: true })),
     )
   }
 
   /**
-   * Resolve uma notificação com cartão de ação (Aprovar/Recusar): remove-a da
-   * lista. Por enquanto só no estado local (vira chamada à API depois).
+   * Aprova/recusa o recurso de origem da notificação (hoje: férias) e recarrega.
+   * A recusa envia um motivo genérico — a justificativa detalhada é feita na
+   * tela de Férias.
    */
-  function responder(id: string) {
-    setNotificacoes((anteriores) => anteriores.filter((n) => n.id !== id))
+  async function agirNaReferencia(id: string, decisao: 'aprovar' | 'recusar') {
+    const alvo = notificacoes.find((n) => n.id === id)
+    if (!alvo?.referenciaId) return
+
+    if (alvo.referenciaTabela === 'ferias_solicitacoes') {
+      if (decisao === 'aprovar') {
+        await feriasService.aprovar(alvo.referenciaId)
+      } else {
+        await feriasService.recusar(alvo.referenciaId, 'Recusado')
+      }
+    }
+    await carregar()
   }
+
+  const aprovar = (id: string) => agirNaReferencia(id, 'aprovar')
+  const recusar = (id: string) => agirNaReferencia(id, 'recusar')
 
   return {
     notificacoes,
     isLoading,
     naoLidas,
     marcarTodasComoLidas,
-    responder,
+    aprovar,
+    recusar,
   }
 }

@@ -1,103 +1,118 @@
-import type { SolicitacaoFerias } from '../types'
+import { getToken } from '@/lib/auth'
+import type {
+  FeriasResumo,
+  MinhaSolicitacao,
+  SolicitacaoFerias,
+} from '../types'
 
-const mockSolicitacoes: SolicitacaoFerias[] = [
-  {
-    id: '1',
-    funcionarioNome: 'Timothy Andrews',
-    matricula: '2412412',
-    cicloFerias: '7 de julho',
-    avatarUrl: 'https://i.pravatar.cc/96?img=12',
-    iniciais: 'TA',
-    dias: 7,
-    inicio: '2026-11-21',
-    periodo: '21 – 28 de nov, 2026',
-    dataSolicitacao: '10/06/2026',
-    diasRestantes: 12,
-    diasTotais: 30,
-    status: 'PENDENTE',
-  },
-  {
-    id: '2',
-    funcionarioNome: 'Ana Carolina Souza',
-    matricula: '1098221',
-    cicloFerias: '15 de março',
-    avatarUrl: 'https://i.pravatar.cc/96?img=47',
-    iniciais: 'AS',
-    dias: 10,
-    inicio: '2026-12-05',
-    periodo: '05 – 15 de dez, 2026',
-    dataSolicitacao: '02/07/2026',
-    diasRestantes: 21,
-    diasTotais: 30,
-    status: 'PENDENTE',
-  },
-  {
-    id: '3',
-    funcionarioNome: 'Bruno Martins',
-    matricula: '3320145',
-    cicloFerias: '1 de fevereiro',
-    avatarUrl: 'https://i.pravatar.cc/96?img=68',
-    iniciais: 'BM',
-    dias: 5,
-    inicio: '2027-01-02',
-    periodo: '02 – 07 de jan, 2027',
-    dataSolicitacao: '15/07/2026',
-    diasRestantes: 8,
-    diasTotais: 30,
-    status: 'PENDENTE',
-  },
-  {
-    id: '4',
-    funcionarioNome: 'Camila Rocha',
-    matricula: '4471209',
-    cicloFerias: '20 de setembro',
-    avatarUrl: 'https://i.pravatar.cc/96?img=32',
-    iniciais: 'CR',
-    dias: 15,
-    inicio: '2027-02-10',
-    periodo: '10 – 25 de fev, 2027',
-    dataSolicitacao: '20/07/2026',
-    diasRestantes: 30,
-    diasTotais: 30,
-    status: 'PENDENTE',
-  },
-  {
-    id: '5',
-    funcionarioNome: 'Diego Almeida',
-    matricula: '5563388',
-    cicloFerias: '3 de janeiro',
-    avatarUrl: 'https://i.pravatar.cc/96?img=15',
-    iniciais: 'DA',
-    dias: 3,
-    inicio: '2027-03-18',
-    periodo: '18 – 21 de mar, 2027',
-    dataSolicitacao: '28/05/2026',
-    diasRestantes: 18,
-    diasTotais: 30,
-    status: 'APROVADA',
-  },
-  {
-    id: '6',
-    funcionarioNome: 'Fernanda Lima',
-    matricula: '6610477',
-    cicloFerias: '10 de novembro',
-    avatarUrl: 'https://i.pravatar.cc/96?img=26',
-    iniciais: 'FL',
-    dias: 12,
-    inicio: '2027-04-01',
-    periodo: '01 – 13 de abr, 2027',
-    dataSolicitacao: '05/06/2026',
-    diasRestantes: 9,
-    diasTotais: 30,
-    status: 'APROVADA',
-  },
-]
+/**
+ * Service de Férias — chamadas HTTP à API (via proxy /api). Sem estado/UI.
+ */
+
+const API_URL = '/api'
+
+/** Header Authorization quando há token salvo. */
+function authHeaders(): HeadersInit {
+  const token = getToken()
+  return token ? { Authorization: `Bearer ${token}` } : {}
+}
+
+function jsonHeaders(): HeadersInit {
+  return { 'Content-Type': 'application/json', ...authHeaders() }
+}
+
+interface ApiResponse<T> {
+  data: T
+}
+interface ApiListResponse<T> {
+  data: T[]
+  total: number
+}
+
+/** Lê {message} do corpo em erro e lança. */
+async function lancarErro(response: Response, fallback: string): Promise<never> {
+  const corpo = (await response.json().catch(() => null)) as {
+    message?: string
+  } | null
+  throw new Error(corpo?.message ?? fallback)
+}
+
+/**
+ * A API devolve o avatar como caminho relativo ("/usuarios/:id/avatar"); aqui
+ * prefixamos com "/api" (proxy). URLs http/data ficam como estão.
+ */
+function resolverAvatar(url: string): string {
+  if (!url) return ''
+  if (url.startsWith('http') || url.startsWith('data:')) return url
+  return `${API_URL}${url}`
+}
+
+/** Entrada para criar uma solicitação. */
+export interface CriarSolicitacaoInput {
+  tipo: 'FERIAS' | 'FOLGA'
+  dataInicio: string // YYYY-MM-DD
+  dataFim: string
+  abono: boolean
+  observacoes: string | null
+}
 
 export const feriasService = {
-  /**
-   * Busca as solicitações de férias pendentes de aprovação.
-   */
+  /** Todas as solicitações (Visão geral). */
   async getSolicitacoes(): Promise<SolicitacaoFerias[]> {
-    return Promise.resolve(mockSolicitacoes)
+    const response = await fetch(`${API_URL}/ferias`, { headers: authHeaders() })
+    if (!response.ok) return lancarErro(response, 'Falha ao buscar solicitações')
+    const json = (await response.json()) as ApiListResponse<SolicitacaoFerias>
+    return json.data.map((s) => ({ ...s, avatarUrl: resolverAvatar(s.avatarUrl) }))
+  },
+
+  /** Histórico do próprio colaborador (aba Pessoal). */
+  async getMinhas(): Promise<MinhaSolicitacao[]> {
+    const response = await fetch(`${API_URL}/ferias/minhas`, {
+      headers: authHeaders(),
+    })
+    if (!response.ok) return lancarErro(response, 'Falha ao buscar seu histórico')
+    const json = (await response.json()) as ApiListResponse<MinhaSolicitacao>
+    return json.data
+  },
+
+  /** Resumo do saldo (cards do topo). */
+  async getResumo(): Promise<FeriasResumo> {
+    const response = await fetch(`${API_URL}/ferias/resumo`, {
+      headers: authHeaders(),
+    })
+    if (!response.ok) return lancarErro(response, 'Falha ao buscar o resumo')
+    const json = (await response.json()) as ApiResponse<FeriasResumo>
+    return json.data
+  },
+
+  /** Cria uma solicitação de férias/folga. */
+  async criar(input: CriarSolicitacaoInput): Promise<SolicitacaoFerias> {
+    const response = await fetch(`${API_URL}/ferias`, {
+      method: 'POST',
+      headers: jsonHeaders(),
+      body: JSON.stringify(input),
+    })
+    if (!response.ok) return lancarErro(response, 'Falha ao criar a solicitação')
+    const json = (await response.json()) as ApiResponse<SolicitacaoFerias>
+    return { ...json.data, avatarUrl: resolverAvatar(json.data.avatarUrl) }
+  },
+
+  /** Aprova uma solicitação. */
+  async aprovar(id: string): Promise<void> {
+    const response = await fetch(`${API_URL}/ferias/${id}/aprovar`, {
+      method: 'PATCH',
+      headers: authHeaders(),
+    })
+    if (!response.ok) return lancarErro(response, 'Falha ao aprovar')
+  },
+
+  /** Recusa uma solicitação com justificativa. */
+  async recusar(id: string, motivo: string): Promise<void> {
+    const response = await fetch(`${API_URL}/ferias/${id}/recusar`, {
+      method: 'PATCH',
+      headers: jsonHeaders(),
+      body: JSON.stringify({ motivo }),
+    })
+    if (!response.ok) return lancarErro(response, 'Falha ao recusar')
   },
 }

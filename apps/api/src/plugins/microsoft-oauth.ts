@@ -117,6 +117,7 @@ export async function microsoftOAuthPlugin(app: FastifyInstance) {
           avatar: dbUser.avatarUrl ?? undefined,
           departamento: dbUser.departamento ?? undefined,
           funcao: dbUser.funcao ?? undefined,
+          papelCodigo: dbUser.papelCodigo ?? undefined,
         };
 
         const token = signAuthToken(authUser);

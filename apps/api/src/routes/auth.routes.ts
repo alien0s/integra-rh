@@ -9,18 +9,20 @@ import {
   definirSenhaUsuario,
   findOrCreateUsuarioLocal,
   getUsuarioAuthPorEmail,
+  getUsuarioPorId,
   updateUserAvatar,
   type AppUser,
   type UsuarioDetalhado,
 } from "../lib/database.js";
-import type {
-  AuthTokenResponse,
-  AuthUser,
-  CheckEmailBody,
-  CheckEmailResponse,
-  LoginRequestBody,
-  SetPasswordBody,
-  UpdateMeuPerfilBody,
+import {
+  PAPEIS_QUE_PODEM_PERSONIFICAR,
+  type AuthTokenResponse,
+  type AuthUser,
+  type CheckEmailBody,
+  type CheckEmailResponse,
+  type LoginRequestBody,
+  type SetPasswordBody,
+  type UpdateMeuPerfilBody,
 } from "../types/auth.js";
 import type { ApiResponse } from "../types/api.js";
 
@@ -42,6 +44,26 @@ function paraAuthUser(user: AppUser): AuthUser {
     avatar: user.avatarUrl ?? undefined,
     papelCodigo: user.papelCodigo ?? undefined,
   };
+}
+
+/** Monta o AuthUser a partir de um UsuarioDetalhado (usado na personificação). */
+function paraAuthUserDeDetalhado(usuario: UsuarioDetalhado): AuthUser {
+  return {
+    id: usuario.id,
+    email: usuario.email,
+    nome: usuario.nome,
+    departamento: usuario.departamento || undefined,
+    funcao: usuario.funcao || undefined,
+    avatar: usuario.fotoUrl || undefined,
+    papelCodigo: usuario.papelCodigo ?? undefined,
+  };
+}
+
+function podePersonificar(papelCodigo: string | undefined): boolean {
+  return Boolean(
+    papelCodigo &&
+      (PAPEIS_QUE_PODEM_PERSONIFICAR as readonly string[]).includes(papelCodigo),
+  );
 }
 
 export async function authRoutes(app: FastifyInstance) {
@@ -305,6 +327,96 @@ export async function authRoutes(app: FastifyInstance) {
         }
         throw error;
       }
+    },
+  );
+
+  /**
+   * Personificação: RH/Admin passam a acessar o sistema como outro usuário.
+   * Troca o token (não é só cosmético) — a partir daqui TODAS as chamadas
+   * (férias, uploads, etc.) resolvem naturalmente para o usuário personificado,
+   * porque `request.user` passa a ser ele. `personificadoPor` fica gravado no
+   * token pra UI mostrar o aviso e pra rota de encerrar saber pra quem voltar.
+   */
+  app.post<{
+    Params: { usuarioId: string };
+    Reply: AuthTokenResponse | { message: string };
+  }>(
+    "/auth/personificar/:usuarioId",
+    {
+      onRequest: [app.authenticate],
+      schema: {
+        tags: ["Autenticação"],
+        summary: "RH/Admin passam a acessar o sistema como outro usuário",
+      },
+    },
+    async (request, reply) => {
+      const ator = request.user;
+
+      // Checa personificação em cadeia ANTES do papel: uma vez personificando,
+      // request.user.papelCodigo passa a ser o papel do ALVO (não do ator
+      // original), então essa checagem não pode depender dele.
+      if (ator.personificadoPor) {
+        return reply.code(409).send({
+          message: "Encerre a personificação atual antes de iniciar outra.",
+        });
+      }
+
+      if (!podePersonificar(ator.papelCodigo)) {
+        return reply
+          .code(403)
+          .send({ message: "Sem permissão para personificar outro usuário." });
+      }
+
+      const { usuarioId } = request.params;
+
+      if (usuarioId === ator.id) {
+        return reply
+          .code(400)
+          .send({ message: "Você não pode personificar a si mesmo." });
+      }
+
+      const alvo = await getUsuarioPorId(usuarioId);
+      if (!alvo) {
+        return reply.code(404).send({ message: "Usuário não encontrado" });
+      }
+
+      const authUser: AuthUser = {
+        ...paraAuthUserDeDetalhado(alvo),
+        personificadoPor: { id: ator.id, email: ator.email, nome: ator.nome },
+      };
+
+      return { token: signAuthToken(authUser), user: authUser };
+    },
+  );
+
+  /** Encerra a personificação ativa e volta a autenticar como o usuário real. */
+  app.post<{
+    Reply: AuthTokenResponse | { message: string };
+  }>(
+    "/auth/encerrar-personificacao",
+    {
+      onRequest: [app.authenticate],
+      schema: {
+        tags: ["Autenticação"],
+        summary: "Encerra a personificação e volta ao usuário real",
+      },
+    },
+    async (request, reply) => {
+      const sessao = request.user;
+
+      if (!sessao.personificadoPor) {
+        return reply.code(400).send({ message: "Não há personificação ativa." });
+      }
+
+      const original = await getUsuarioPorId(sessao.personificadoPor.id);
+      if (!original) {
+        return reply
+          .code(404)
+          .send({ message: "Usuário original não encontrado" });
+      }
+
+      const authUser = paraAuthUserDeDetalhado(original);
+      return { token: signAuthToken(authUser), user: authUser };
     },
   );
 }

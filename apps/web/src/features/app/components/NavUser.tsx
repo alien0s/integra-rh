@@ -41,35 +41,34 @@ export function NavUser() {
   const { theme, setTheme } = useTheme()
   const navigate = useNavigate()
   const { sair: encerrarSessao } = useAuth()
-  const { personificado, ativo: personificando, encerrar } = usePersonificacao()
+  const { ativo: personificando, atorOriginal, encerrar } = usePersonificacao()
   const { authUser, usuario: perfil } = useUsuarioLogado()
 
   if (!authUser) return null
 
-  // Ao personificar, exibe o usuário personificado; senão, o logado (identidade
-  // do JWT, com nome/avatar preferindo o perfil da API).
-  const usuario =
-    personificando && personificado
-      ? personificado
-      : {
-          id: authUser.id,
-          nome: perfil?.nome ?? authUser.nome,
-          email: perfil?.email ?? authUser.email,
-          iniciais: perfil?.iniciais ?? authUser.iniciais,
-        }
-  const avatarUrl =
-    personificando && personificado
-      ? personificado.avatarUrl
-      : perfil?.fotoUrl || authUser.avatar || undefined
+  // authUser/perfil já refletem a identidade certa em qualquer caso: ao
+  // personificar, o próprio token JWT passa a ser o do usuário personificado.
+  const usuario = {
+    id: authUser.id,
+    nome: perfil?.nome ?? authUser.nome,
+    email: perfil?.email ?? authUser.email,
+    iniciais: perfil?.iniciais ?? authUser.iniciais,
+  }
+  const avatarUrl = perfil?.fotoUrl || authUser.avatar || undefined
 
   function sair() {
     encerrarSessao()
     navigate("/login", { replace: true })
   }
 
-  function voltarAoMeuPerfil() {
-    encerrar()
-    navigate(`/usuarios/${authUser!.id}`)
+  async function voltarAoMeuPerfil() {
+    const meuId = atorOriginal?.id
+    try {
+      await encerrar()
+      navigate(meuId ? `/usuarios/${meuId}` : "/home")
+    } catch {
+      // Erro (ex.: falha de rede) fica disponível em usePersonificacao().erro.
+    }
   }
 
   return (
@@ -81,7 +80,7 @@ export function NavUser() {
           <div className="min-w-0 flex-1 leading-tight">
             <p className="truncate text-xs font-medium">Personificando</p>
             <p className="truncate text-[11px] text-yellow-900">
-              {personificado?.nome}
+              {usuario.nome}
             </p>
           </div>
           <button

@@ -21,6 +21,8 @@ export interface AuthUser {
   departamento?: string
   funcao?: string
   avatar?: string
+  papelCodigo?: string
+  personificadoPor?: { id: string; email: string; nome: string }
 }
 
 export interface AuthTokenResponse {
@@ -120,5 +122,36 @@ export const authService = {
     if (!response.ok) {
       throw new Error(await extrairErro(response, 'Não foi possível salvar o perfil.'))
     }
+  },
+
+  /**
+   * Personifica outro usuário (RH/Admin): troca o token pelo do usuário-alvo.
+   * Todas as chamadas seguintes passam a valer para ele, não só a exibição.
+   */
+  async personificar(usuarioId: string): Promise<AuthTokenResponse> {
+    const response = await fetch(`${API_URL}/auth/personificar/${usuarioId}`, {
+      method: 'POST',
+      headers: authHeaders(),
+    })
+
+    if (!response.ok) {
+      throw new Error(await extrairErro(response, 'Não foi possível personificar este usuário.'))
+    }
+
+    return (await response.json()) as AuthTokenResponse
+  },
+
+  /** Encerra a personificação ativa e volta a autenticar como o usuário real. */
+  async encerrarPersonificacao(): Promise<AuthTokenResponse> {
+    const response = await fetch(`${API_URL}/auth/encerrar-personificacao`, {
+      method: 'POST',
+      headers: authHeaders(),
+    })
+
+    if (!response.ok) {
+      throw new Error(await extrairErro(response, 'Não foi possível encerrar a personificação.'))
+    }
+
+    return (await response.json()) as AuthTokenResponse
   },
 }

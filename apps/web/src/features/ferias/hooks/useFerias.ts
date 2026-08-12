@@ -1,52 +1,48 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 
 import type { SolicitacaoFerias } from '@/features/ferias/types'
 import { feriasService } from '@/features/ferias/services'
 
 /**
- * Hook para buscar e gerenciar as solicitações de férias.
+ * Hook da Visão geral: lista as solicitações (API) e aprova/recusa,
+ * atualizando o item na lista local após a resposta do backend.
  */
 export function useFerias() {
   const [solicitacoes, setSolicitacoes] = useState<SolicitacaoFerias[]>([])
   const [isLoading, setIsLoading] = useState(true)
 
-  useEffect(() => {
-    let ativo = true
-
-    async function carregar() {
-      setIsLoading(true)
-      try {
-        const data = await feriasService.getSolicitacoes()
-        if (ativo) setSolicitacoes(data)
-      } catch (error) {
-        console.error('Erro ao buscar solicitações de férias', error)
-      } finally {
-        if (ativo) setIsLoading(false)
-      }
-    }
-
-    carregar()
-
-    return () => {
-      ativo = false
+  const carregar = useCallback(async () => {
+    setIsLoading(true)
+    try {
+      setSolicitacoes(await feriasService.getSolicitacoes())
+    } catch (error) {
+      console.error('Erro ao buscar solicitações de férias', error)
+    } finally {
+      setIsLoading(false)
     }
   }, [])
 
-  /** Aprova a solicitação (placeholder local até a integração com a API). */
-  function aprovar(id: string) {
+  useEffect(() => {
+    carregar()
+  }, [carregar])
+
+  /** Aprova e reflete o novo status no item. */
+  async function aprovar(id: string) {
+    await feriasService.aprovar(id)
     setSolicitacoes((atual) =>
-      atual.map((s) => (s.id === id ? { ...s, status: 'APROVADA' } : s))
+      atual.map((s) => (s.id === id ? { ...s, status: 'APROVADA' } : s)),
     )
   }
 
-  /** Rejeita a solicitação com uma justificativa (placeholder local até a API). */
-  function rejeitar(id: string, motivo: string) {
+  /** Recusa com justificativa e reflete no item. */
+  async function rejeitar(id: string, motivo: string) {
+    await feriasService.recusar(id, motivo)
     setSolicitacoes((atual) =>
       atual.map((s) =>
-        s.id === id ? { ...s, status: 'REJEITADA', motivoRejeicao: motivo } : s
-      )
+        s.id === id ? { ...s, status: 'REJEITADA', motivoRejeicao: motivo } : s,
+      ),
     )
   }
 
-  return { solicitacoes, isLoading, aprovar, rejeitar }
+  return { solicitacoes, isLoading, aprovar, rejeitar, recarregar: carregar }
 }

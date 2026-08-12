@@ -67,6 +67,7 @@ const SELECT_APP_USER = (sql: ReturnType<typeof postgres>) => sql`
   FROM users u
   LEFT JOIN departments d ON d.id = u.department_id
   LEFT JOIN functions  f ON f.id = u.function_id
+  LEFT JOIN roles      r ON r.id = u.role_id
 `;
 
 /**

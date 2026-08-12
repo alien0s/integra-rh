@@ -19,7 +19,7 @@ import { NotificacaoItem } from '@/features/notificacoes/components/NotificacaoI
  * de notificações, quantidade de não lidas e ação de marcar todas como lidas.
  */
 export function NotificacoesDrawer() {
-  const { notificacoes, naoLidas, marcarTodasComoLidas, responder } =
+  const { notificacoes, naoLidas, marcarTodasComoLidas, aprovar, recusar } =
     useNotificacoes()
 
   return (
@@ -68,8 +68,8 @@ export function NotificacoesDrawer() {
                 <NotificacaoItem
                   key={notificacao.id}
                   notificacao={notificacao}
-                  onAprovar={responder}
-                  onRecusar={responder}
+                  onAprovar={aprovar}
+                  onRecusar={recusar}
                 />
               ))}
             </div>

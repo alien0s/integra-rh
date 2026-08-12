@@ -1,68 +1,54 @@
+import { getToken } from '@/lib/auth'
 import type { Notificacao } from '@/features/notificacoes/types'
 
 /**
- * Service de Notificações.
- * Mock por enquanto (vira chamada à API quando o backend existir).
+ * Service de Notificações — chamadas HTTP à API (via proxy /api).
  */
 
-const mockNotificacoes: Notificacao[] = [
-  {
-    id: '1',
-    nome: 'Marcos',
-    acao: 'aprovou seu certificado de nível superior',
-    detalhe: 'Administração de Empresas',
-    tempo: '2 min',
-    avatar: 'https://i.pravatar.cc/96?img=13',
-    iniciais: 'MA',
-    lida: false,
-  },
-  {
-    id: '2',
-    nome: 'Juliana',
-    acao: 'solicitou acesso ao curso',
-    detalhe: 'Gestão de Pessoas',
-    tempo: '18 min',
-    avatar: 'https://i.pravatar.cc/96?img=45',
-    iniciais: 'JU',
-    lida: false,
-    cartao: {
-      titulo: 'MBA em Gestão de Pessoas',
-      subtitulo: 'Atualizado há 12 min',
-      icone: 'curso',
-    },
-    requerAcao: true,
-  },
-  {
-    id: '3',
-    nome: 'Renata',
-    acao: 'enviou um documento para revisão',
-    detalhe: 'Histórico acadêmico',
-    tempo: '1 h',
-    avatar: 'https://i.pravatar.cc/96?img=29',
-    iniciais: 'RE',
-    lida: false,
-    cartao: {
-      titulo: 'Histórico acadêmico.pdf',
-      subtitulo: 'Enviado há 1 hora',
-      icone: 'documento',
-    },
-    requerAcao: true,
-  },
-  {
-    id: '4',
-    nome: 'Carlos',
-    acao: 'validou sua declaração de curso',
-    detalhe: 'Excel avançado para dashboards',
-    tempo: 'Ontem',
-    avatar: 'https://i.pravatar.cc/96?img=60',
-    iniciais: 'CA',
-    lida: true,
-  },
-]
+const API_URL = '/api'
+
+function authHeaders(): HeadersInit {
+  const token = getToken()
+  return token ? { Authorization: `Bearer ${token}` } : {}
+}
+
+interface ApiListResponse<T> {
+  data: T[]
+  total: number
+  naoLidas: number
+}
+
+/** Prefixa o avatar relativo ("/usuarios/:id/avatar") com a base "/api". */
+function resolverAvatar(url: string): string {
+  if (!url) return ''
+  if (url.startsWith('http') || url.startsWith('data:')) return url
+  return `${API_URL}${url}`
+}
 
 export const notificacoesService = {
-  /** Lista as notificações do usuário. */
+  /** Lista as notificações do usuário logado. */
   async getNotificacoes(): Promise<Notificacao[]> {
-    return mockNotificacoes
+    const response = await fetch(`${API_URL}/notificacoes`, {
+      headers: authHeaders(),
+    })
+    if (!response.ok) throw new Error('Falha ao buscar notificações')
+    const json = (await response.json()) as ApiListResponse<Notificacao>
+    return json.data.map((n) => ({ ...n, avatar: resolverAvatar(n.avatar) }))
+  },
+
+  /** Marca uma notificação como lida. */
+  async marcarLida(id: string): Promise<void> {
+    await fetch(`${API_URL}/notificacoes/${id}/lida`, {
+      method: 'PATCH',
+      headers: authHeaders(),
+    })
+  },
+
+  /** Marca todas as notificações como lidas. */
+  async marcarTodasLidas(): Promise<void> {
+    await fetch(`${API_URL}/notificacoes/marcar-todas-lidas`, {
+      method: 'POST',
+      headers: authHeaders(),
+    })
   },
 }

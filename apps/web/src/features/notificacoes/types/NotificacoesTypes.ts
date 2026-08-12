@@ -36,4 +36,9 @@ export interface Notificacao {
   cartao?: NotificacaoCartao
   /** Quando true, exibe os botões Recusar / Aprovar no cartão. */
   requerAcao?: boolean
+  /** Tipo do evento (ex.: "FERIAS_SOLICITADA"). */
+  tipo?: string
+  /** Recurso de origem — para o card acionar (ex.: aprovar a férias). */
+  referenciaTabela?: string | null
+  referenciaId?: string | null
 }

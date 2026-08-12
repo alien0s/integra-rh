@@ -29,12 +29,12 @@ export function FeriasResumoCards({ resumo }: FeriasResumoCardsProps) {
     <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
       {cards.map(({ label, valor, icon: Icon }) => (
         <Card key={label} className="shadow-none">
-          <CardContent className="flex items-center justify-between gap-3 p-5">
+          <CardContent className="flex items-center justify-between gap-3 px-5 py-3.5">
             <div className="min-w-0">
               <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
                 {label}
               </p>
-              <p className="mt-1 truncate text-2xl font-bold tracking-tight">
+              <p className="mt-0.5 truncate text-2xl font-bold tracking-tight">
                 {valor}
               </p>
             </div>

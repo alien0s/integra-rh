@@ -110,6 +110,8 @@ export function verifyAuthToken(token: string): AuthUser {
     nome: payload.nome,
     departamento: payload.departamento,
     funcao: payload.funcao,
-    avatar: payload.avatar
+    avatar: payload.avatar,
+    papelCodigo: payload.papelCodigo,
+    personificadoPor: payload.personificadoPor
   };
 }

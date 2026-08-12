@@ -3,6 +3,13 @@
  * backend em cada request). Serve só para exibir os dados e saber se há sessão.
  */
 
+/** Identidade mínima do usuário real por trás de uma sessão personificada. */
+export interface PersonificadoPor {
+  id: string
+  email: string
+  nome: string
+}
+
 /** Usuário logado, derivado do JWT. */
 export interface AuthUsuario {
   id: string
@@ -11,6 +18,12 @@ export interface AuthUsuario {
   avatar?: string
   departamento?: string
   funcao?: string
+  papelCodigo?: string
+  /**
+   * Presente quando esta sessão é uma personificação: quem é o usuário real
+   * (que iniciou a personificação), para exibir na UI e voltar a ele depois.
+   */
+  personificadoPor?: PersonificadoPor
   /** Iniciais para o fallback do avatar (ex.: "EF"). */
   iniciais: string
 }
@@ -22,6 +35,8 @@ interface JwtPayload {
   avatar?: string
   departamento?: string
   funcao?: string
+  papelCodigo?: string
+  personificadoPor?: PersonificadoPor
   exp?: number
 }
 
@@ -67,6 +82,8 @@ export function usuarioDoToken(token: string | null): AuthUsuario | null {
     avatar: payload.avatar,
     departamento: payload.departamento,
     funcao: payload.funcao,
+    papelCodigo: payload.papelCodigo,
+    personificadoPor: payload.personificadoPor,
     iniciais: calcularIniciais(nome),
   }
 }

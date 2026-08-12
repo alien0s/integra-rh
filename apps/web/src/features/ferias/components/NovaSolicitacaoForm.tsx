@@ -24,8 +24,14 @@ import { Switch } from '@/components/ui/switch'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
 import { usePreferenciaFerias30 } from '@/lib/preferencias'
+import type { CriarSolicitacaoInput } from '@/features/ferias/services'
 
 type TipoSolicitacao = 'ferias' | 'folga'
+
+interface NovaSolicitacaoFormProps {
+  /** Envia a solicitação à API. Se ausente, só loga (modo mock). */
+  onSolicitar?: (input: CriarSolicitacaoInput) => Promise<void>
+}
 
 /** Duração padrão de férias em dias corridos (usada no preenchimento automático). */
 const DIAS_FERIAS = 30
@@ -58,13 +64,14 @@ function parseData(texto: string): Date | undefined {
  * Formulário de nova solicitação (férias/folga): calendário de período com
  * inputs editáveis e inteligentes, abono (só férias) e observações.
  */
-export function NovaSolicitacaoForm() {
+export function NovaSolicitacaoForm({ onSolicitar }: NovaSolicitacaoFormProps) {
   const [tipo, setTipo] = useState<TipoSolicitacao>('ferias')
   const [periodo, setPeriodo] = useState<DateRange | undefined>()
   const [inicioText, setInicioText] = useState('')
   const [terminoText, setTerminoText] = useState('')
   const [abono, setAbono] = useState(false)
   const [observacoes, setObservacoes] = useState('')
+  const [enviando, setEnviando] = useState(false)
   const [auto30] = usePreferenciaFerias30()
 
   // Limites: não permite datas/meses anteriores a hoje.
@@ -155,15 +162,29 @@ export function NovaSolicitacaoForm() {
     if (!isSameDay(to, data)) setTerminoText(formatarData(to))
   }
 
-  function handleSolicitar() {
-    // TODO: enviar à API quando o autosserviço estiver ligado ao usuário logado.
-    console.info('Solicitação (mock):', {
-      tipo,
-      inicio: periodo?.from,
-      fim: periodo?.to,
-      abono,
-      observacoes,
-    })
+  async function handleSolicitar() {
+    if (!periodo?.from || !periodo?.to) return
+
+    const input = {
+      tipo: tipo === 'folga' ? ('FOLGA' as const) : ('FERIAS' as const),
+      dataInicio: format(periodo.from, 'yyyy-MM-dd'),
+      dataFim: format(periodo.to, 'yyyy-MM-dd'),
+      abono: tipo === 'ferias' ? abono : false,
+      observacoes: observacoes.trim() || null,
+    }
+
+    setEnviando(true)
+    try {
+      await onSolicitar?.(input)
+      // Limpa o formulário após enviar.
+      handleLimpar()
+      setAbono(false)
+      setObservacoes('')
+    } catch (erro) {
+      console.error('Falha ao solicitar', erro)
+    } finally {
+      setEnviando(false)
+    }
   }
 
   return (
@@ -180,7 +201,6 @@ export function NovaSolicitacaoForm() {
           </TabsList>
         </Tabs>
       </CardHeader>
-      <Separator />
       <CardContent className="pt-5">
         <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
           {/* Coluna 1: calendário */}
@@ -268,8 +288,16 @@ export function NovaSolicitacaoForm() {
               />
             </div>
 
-            <Button className="w-full" disabled={!podeSolicitar} onClick={handleSolicitar}>
-              {tipo === 'folga' ? 'Solicitar folga' : 'Solicitar férias'}
+            <Button
+              className="w-full"
+              disabled={!podeSolicitar || enviando}
+              onClick={handleSolicitar}
+            >
+              {enviando
+                ? 'Enviando…'
+                : tipo === 'folga'
+                  ? 'Solicitar folga'
+                  : 'Solicitar férias'}
             </Button>
           </div>
         </div>

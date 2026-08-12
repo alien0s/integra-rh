@@ -12,6 +12,8 @@ import { authPlugin } from "./plugins/auth.js";
 import { getApiConfig } from "./plugins/env.js";
 import { microsoftOAuthPlugin } from "./plugins/microsoft-oauth.js";
 import { authRoutes } from "./routes/auth.routes.js";
+import { feriasRoutes } from "./routes/ferias.routes.js";
+import { notificacoesRoutes } from "./routes/notificacoes.routes.js";
 import { tabelasRoutes } from "./routes/tabelas.routes.js";
 import { uploadsRoutes } from "./routes/uploads.routes.js";
 import { usuariosRoutes } from "./routes/usuarios.routes.js";
@@ -136,6 +138,8 @@ export function buildApp() {
   app.register(usuariosRoutes);
   app.register(tabelasRoutes);
   app.register(uploadsRoutes);
+  app.register(feriasRoutes);
+  app.register(notificacoesRoutes);
 
   return app;
 }
