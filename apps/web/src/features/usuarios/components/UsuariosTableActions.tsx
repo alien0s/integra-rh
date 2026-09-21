@@ -8,6 +8,7 @@ import {
   Search,
   SlidersHorizontal,
   Table2,
+  UserCog,
   Upload,
 } from 'lucide-react'
 
@@ -20,12 +21,14 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { Input } from '@/components/ui/input'
+import { AtribuirGerenteDialog } from '@/features/usuarios/components/AtribuirGerenteDialog'
 import { ImportarUsuariosDialog } from '@/features/usuarios/components/ImportarUsuariosDialog'
 import {
   exportarUsuariosExcel,
   exportarUsuariosPdf,
 } from '@/features/usuarios/services'
 import type {
+  OpcaoSelecao,
   Usuario,
   UsuarioTableColumn,
   UsuarioView,
@@ -37,11 +40,15 @@ interface UsuariosTableActionsProps {
   view: UsuarioView
   /** Usuários a exportar (Excel/PDF). */
   usuarios: Usuario[]
+  /** Opções do dropdown de setor (dialog de atribuir gerente). */
+  setores: OpcaoSelecao[]
   onSearchChange: (value: string) => void
   onVisibleColumnsChange: (columns: UsuarioTableColumn[]) => void
   onViewChange: (view: UsuarioView) => void
   /** Chamado após uma importação bem-sucedida (para recarregar a lista). */
   onImportComplete?: () => void
+  /** Chamado após atribuir um gerente com sucesso (para recarregar a lista). */
+  onGerenteAtribuido?: () => void
 }
 
 const viewButtonClassName =
@@ -51,7 +58,7 @@ const tableColumns: { id: UsuarioTableColumn; label: string }[] = [
   { id: 'nome', label: 'Nome' },
   { id: 'email', label: 'E-mail' },
   { id: 'funcao', label: 'Função' },
-  { id: 'departamento', label: 'Departamento' },
+  { id: 'setor', label: 'Setor' },
   { id: 'status', label: 'Status' },
 ]
 
@@ -63,12 +70,15 @@ export function UsuariosTableActions({
   visibleColumns,
   view,
   usuarios,
+  setores,
   onSearchChange,
   onVisibleColumnsChange,
   onViewChange,
   onImportComplete,
+  onGerenteAtribuido,
 }: UsuariosTableActionsProps) {
   const [importarAberto, setImportarAberto] = useState(false)
+  const [atribuirGerenteAberto, setAtribuirGerenteAberto] = useState(false)
 
   function handleColumnVisibilityChange(
     column: UsuarioTableColumn,
@@ -149,13 +159,15 @@ export function UsuariosTableActions({
             ))}
           </DropdownMenuContent>
         </DropdownMenu>
+        
         <Button
-          variant="ghost"
-          size="icon-sm"
-          className="text-muted-foreground"
-          aria-label="Mais ações"
+          variant="outline"
+          size="sm"
+          className="bg-background"
+          onClick={() => setAtribuirGerenteAberto(true)}
         >
-          <MoreHorizontal className="h-4 w-4" />
+          <UserCog className="h-4 w-4" />
+          Atribuir gerente
         </Button>
         <Button
           variant="outline"
@@ -190,6 +202,13 @@ export function UsuariosTableActions({
         open={importarAberto}
         onOpenChange={setImportarAberto}
         onImported={onImportComplete}
+      />
+
+      <AtribuirGerenteDialog
+        open={atribuirGerenteAberto}
+        onOpenChange={setAtribuirGerenteAberto}
+        setores={setores}
+        onAtribuido={onGerenteAtribuido}
       />
     </div>
   )

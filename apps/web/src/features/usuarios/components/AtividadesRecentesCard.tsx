@@ -1,4 +1,4 @@
-import { Star } from 'lucide-react'
+import { AlertTriangle, FileText, GraduationCap, Paperclip, type LucideIcon } from 'lucide-react'
 
 import {
   Card,
@@ -6,43 +6,68 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card'
+import { useAtividadesUsuario } from '@/features/usuarios/hooks'
+import type { AtividadeUsuario } from '@/features/usuarios/types'
 
-interface Atividade {
-  id: string
-  titulo: string
-  tempo: string
+/** Ícone do card conforme o tipo da atividade (mesmo mapa das notificações). */
+const iconePorTipo: Record<AtividadeUsuario['icone'], LucideIcon> = {
+  arquivo: Paperclip,
+  documento: FileText,
+  curso: GraduationCap,
+  obrigacao: AlertTriangle,
 }
 
-// Mock por enquanto — virá da API (feed de atividades do usuário) futuramente.
-const atividadesMock: Atividade[] = [
-  { id: '1', titulo: 'Concluiu o projeto "Dashboard UI"', tempo: '2 horas atrás' },
-  { id: '2', titulo: 'Atualizou dados cadastrais', tempo: '2 horas atrás' },
-  { id: '3', titulo: 'Enviou certificado para validação', tempo: '2 horas atrás' },
-]
+interface AtividadesRecentesCardProps {
+  /** Id do usuário cujas atividades serão listadas. */
+  usuarioId: string | undefined
+}
 
 /**
- * Card lateral com as atividades recentes do usuário no perfil.
+ * Card lateral com as atividades recentes do usuário no perfil — ações que
+ * ELE realizou no sistema (aprovou/recusou/solicitou algo), não notificações
+ * que recebeu. Vem da mesma tabela de notificações (ver
+ * lib/notificacoes.ts#listAtividadesUsuario), filtrada por quem foi o ator.
  */
-export function AtividadesRecentesCard() {
+export function AtividadesRecentesCard({ usuarioId }: AtividadesRecentesCardProps) {
+  const { atividades, isLoading, error } = useAtividadesUsuario(usuarioId)
+
   return (
     <Card className="shadow-none">
       <CardHeader className="pb-3">
         <CardTitle className="text-lg">Atividades recentes</CardTitle>
       </CardHeader>
       <CardContent className="p-0">
-        <div className="divide-y">
-          {atividadesMock.map((atividade) => (
-            <div key={atividade.id} className="flex gap-4 px-6 py-5">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-muted">
-                <Star className="h-5 w-5 text-muted-foreground" />
-              </div>
-              <div className="min-w-0">
-                <p className="text-sm font-medium leading-5">{atividade.titulo}</p>
-                <p className="text-sm text-muted-foreground">{atividade.tempo}</p>
-              </div>
-            </div>
-          ))}
-        </div>
+        {isLoading ? (
+          <p className="px-6 py-5 text-sm text-muted-foreground">Carregando…</p>
+        ) : error ? (
+          <p className="px-6 py-5 text-sm text-destructive">{error}</p>
+        ) : atividades.length === 0 ? (
+          <p className="px-6 py-5 text-sm text-muted-foreground">
+            Nenhuma atividade recente.
+          </p>
+        ) : (
+          <div className="divide-y">
+            {atividades.map((atividade) => {
+              const Icone = iconePorTipo[atividade.icone]
+              return (
+                <div key={atividade.id} className="flex gap-4 px-6 py-5">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-muted">
+                    <Icone className="h-5 w-5 text-muted-foreground" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium leading-5">
+                      {atividade.acao}
+                      {atividade.detalhe ? ` — ${atividade.detalhe}` : ''}
+                    </p>
+                    <p className="text-sm text-muted-foreground">
+                      {atividade.destinatarioNome} • {atividade.tempo}
+                    </p>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
       </CardContent>
     </Card>
   )

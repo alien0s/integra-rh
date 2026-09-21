@@ -74,9 +74,9 @@ export function UsuariosGrid({ data, onSelectUsuario }: UsuariosGridProps) {
 
             <div className="flex flex-col gap-1.5 border-t pt-3 text-sm">
               <div className="flex items-center justify-between gap-2">
-                <span className="text-muted-foreground">Departamento</span>
+                <span className="text-muted-foreground">Setor</span>
                 <span className="truncate font-medium">
-                  {usuario.departamento}
+                  {usuario.setor}
                 </span>
               </div>
               <div className="flex items-center justify-between gap-2">

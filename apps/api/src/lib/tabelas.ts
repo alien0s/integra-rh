@@ -3,8 +3,8 @@ import postgres from 'postgres';
 import { getDatabase } from './database.js';
 
 /* ──────────────────────────────────────────────────────────────────────────
- * Tabelas de apoio (tela /tabelas) — CRUD completo de entities, departments,
- * functions e roles. Diferente de listDepartamentos/listFuncoes (que só
+ * Tabelas de apoio (tela /tabelas) — CRUD completo de entities, setor,
+ * functions e roles. Diferente de listSetores/listFuncoes (que só
  * trazem id/nome para os dropdowns de outras telas), aqui expomos o
  * registro completo para a tela administrativa de manutenção dessas
  * tabelas de apoio do ERP.
@@ -90,7 +90,7 @@ export async function excluirEntidade(id: string): Promise<boolean> {
 /**
  * Resolve a entidade a usar em `functions` (que são de uma única entidade neste
  * ERP hoje e a tela de Tabelas não expõe a entidade). Usa a mais antiga.
- * Obs.: `departments` são INDEPENDENTES de entidade (não usam isto).
+ * Obs.: `setor` é INDEPENDENTE de entidade (não usa isto).
  */
 async function resolverEntidadeUnica(sql: ReturnType<typeof postgres>): Promise<string> {
   const [entidade] = await sql<{ id: string }[]>`
@@ -98,71 +98,67 @@ async function resolverEntidadeUnica(sql: ReturnType<typeof postgres>): Promise<
   `;
   if (!entidade) {
     throw new Error(
-      'Nenhuma entidade cadastrada. Cadastre uma entidade antes de criar departamentos ou funções.',
+      'Nenhuma entidade cadastrada. Cadastre uma entidade antes de criar setores ou funções.',
     );
   }
   return entidade.id;
 }
 
-/* ── Departamentos (departments) ───────────────────────────────────────── */
+/* ── Setores (setor) ────────────────────────────────────────────────────── */
 
-export interface Departamento {
+export interface Setor {
   id: string;
   nome: string;
-  descricao: string | null;
   createdAt: string;
 }
 
-export interface DepartamentoInput {
+export interface SetorInput {
   nome: string;
-  descricao: string | null;
 }
 
-const SELECT_DEPARTAMENTO = (sql: ReturnType<typeof postgres>) => sql`
-  SELECT d.id, d.nome, d.descricao, to_char(d.created_at, 'DD/MM/YYYY HH24:MI') AS "createdAt"
-  FROM departments d
+const SELECT_SETOR = (sql: ReturnType<typeof postgres>) => sql`
+  SELECT s.id, s.nome, to_char(s.created_at, 'DD/MM/YYYY HH24:MI') AS "createdAt"
+  FROM setor s
 `;
 
-export async function listDepartamentosCompleto(): Promise<Departamento[]> {
+export async function listSetoresCompleto(): Promise<Setor[]> {
   const sql = getDatabase();
-  return sql<Departamento[]>`${SELECT_DEPARTAMENTO(sql)} ORDER BY d.nome`;
+  return sql<Setor[]>`${SELECT_SETOR(sql)} ORDER BY s.nome`;
 }
 
-export async function criarDepartamento(
-  input: DepartamentoInput,
-): Promise<Departamento> {
+export async function criarSetor(input: SetorInput): Promise<Setor> {
   const sql = getDatabase();
   const [created] = await sql<{ id: string }[]>`
-    INSERT INTO departments (nome, descricao)
-    VALUES (${input.nome}, ${input.descricao})
+    INSERT INTO setor (nome)
+    VALUES (${input.nome})
     RETURNING id
   `;
-  const [departamento] = await sql<Departamento[]>`
-    ${SELECT_DEPARTAMENTO(sql)} WHERE d.id = ${created.id}
+  const [setor] = await sql<Setor[]>`
+    ${SELECT_SETOR(sql)} WHERE s.id = ${created.id}
   `;
-  return departamento;
+  return setor;
 }
 
-export async function atualizarDepartamento(
+export async function atualizarSetor(
   id: string,
-  input: DepartamentoInput,
-): Promise<Departamento | null> {
+  input: SetorInput,
+): Promise<Setor | null> {
   const sql = getDatabase();
   const updated = await sql`
-    UPDATE departments SET nome = ${input.nome}, descricao = ${input.descricao}
+    UPDATE setor SET nome = ${input.nome}
     WHERE id = ${id}
   `;
   if (updated.count === 0) return null;
 
-  const [departamento] = await sql<Departamento[]>`
-    ${SELECT_DEPARTAMENTO(sql)} WHERE d.id = ${id}
+  const [setor] = await sql<Setor[]>`
+    ${SELECT_SETOR(sql)} WHERE s.id = ${id}
   `;
-  return departamento;
+  return setor;
 }
 
-export async function excluirDepartamento(id: string): Promise<boolean> {
+export async function excluirSetor(id: string): Promise<boolean> {
   const sql = getDatabase();
-  const deleted = await sql`DELETE FROM departments WHERE id = ${id}`;
+  const deleted = await sql`DELETE FROM setor WHERE id = ${id}`;
   return deleted.count > 0;
 }
 

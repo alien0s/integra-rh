@@ -1,32 +1,33 @@
 import type { FastifyInstance } from "fastify";
 
 import {
-  atualizarDepartamento,
   atualizarEntidade,
   atualizarFuncao,
   atualizarPapel,
-  criarDepartamento,
+  atualizarSetor,
   criarEntidade,
   criarFuncao,
   criarPapel,
-  excluirDepartamento,
+  criarSetor,
   excluirEntidade,
   excluirFuncao,
   excluirPapel,
+  excluirSetor,
   GRUPOS_ENTIDADE,
-  listDepartamentosCompleto,
   listEntidades,
   listFuncoesCompleto,
   listPapeis,
-  type Departamento,
-  type DepartamentoInput,
+  listSetoresCompleto,
   type Entidade,
   type EntidadeInput,
   type Funcao,
   type FuncaoInput,
   type Papel,
   type PapelInput,
+  type Setor,
+  type SetorInput,
 } from "../lib/tabelas.js";
+import { bloquearColaborador, exigirPapeis } from "../plugins/auth.js";
 import type { ApiListResponse, ApiResponse } from "../types/api.js";
 
 /** Mapeia códigos de erro do Postgres para uma resposta 409 amigável. */
@@ -47,9 +48,13 @@ function tratarErroPg(
 
 /**
  * Rotas da tela "Tabelas" — CRUD administrativo completo das tabelas de
- * apoio do ERP (entidades, departamentos, funções e papéis). Protegidas por
- * JWT, como as demais rotas (em dev, o decorator `authenticate` libera
- * quando AUTH_ENABLED=false).
+ * apoio do ERP (entidades, setores, funções e papéis). Protegidas por JWT
+ * (em dev, o decorator `authenticate` libera quando AUTH_ENABLED=false).
+ * Escrita (criar/atualizar/excluir) restrita a ADMIN (nível 7) —
+ * `exigirPapeis()` sem argumentos só inclui "ADMIN" no conjunto permitido
+ * (ver plugins/auth.ts). Leitura (listar) usa `bloquearColaborador` — essas
+ * listas alimentam dropdowns fora da tela "Tabelas" (ex.: editar usuário,
+ * usado por RH/DP/Coordenador DP), então só o COLABORADOR fica de fora.
  */
 export async function tabelasRoutes(app: FastifyInstance) {
   /* ── Entidades ──────────────────────────────────────────────────────── */
@@ -57,7 +62,7 @@ export async function tabelasRoutes(app: FastifyInstance) {
   app.get<{ Reply: ApiListResponse<Entidade> }>(
     "/tabelas/entidades",
     {
-      onRequest: [app.authenticate],
+      onRequest: [app.authenticate, bloquearColaborador],
       schema: { tags: ["Tabelas — Entidades"], summary: "Lista todas as entidades" },
     },
     async () => {
@@ -72,7 +77,7 @@ export async function tabelasRoutes(app: FastifyInstance) {
   }>(
     "/tabelas/entidades",
     {
-      onRequest: [app.authenticate],
+      onRequest: [app.authenticate, exigirPapeis()],
       schema: {
         tags: ["Tabelas — Entidades"],
         summary: "Cria uma entidade",
@@ -114,7 +119,7 @@ export async function tabelasRoutes(app: FastifyInstance) {
   }>(
     "/tabelas/entidades/:id",
     {
-      onRequest: [app.authenticate],
+      onRequest: [app.authenticate, exigirPapeis()],
       schema: {
         tags: ["Tabelas — Entidades"],
         summary: "Atualiza uma entidade",
@@ -155,14 +160,15 @@ export async function tabelasRoutes(app: FastifyInstance) {
   app.delete<{ Params: { id: string }; Reply: { message: string } | undefined }>(
     "/tabelas/entidades/:id",
     {
-      onRequest: [app.authenticate],
-      schema: { tags: ["Tabelas — Entidades"], summary: "Exclui uma entidade (cascata: departamentos, funções e usuários)" },
+      onRequest: [app.authenticate, exigirPapeis()],
+      schema: { tags: ["Tabelas — Entidades"], summary: "Exclui uma entidade (cascata: funções e usuários)" },
     },
     async (request, reply) => {
       // Sem try/catch de FK: entities cascade (ON DELETE CASCADE) para
-      // departments/functions/users — a exclusão nunca falha por FK, mas
-      // apaga em cascata todos os vínculos da entidade (o front confirma
-      // essa consequência antes de chamar esta rota).
+      // functions/users — a exclusão nunca falha por FK, mas apaga em
+      // cascata todos os vínculos da entidade (o front confirma essa
+      // consequência antes de chamar esta rota). `setor` é independente de
+      // entidade, não é afetado.
       const excluida = await excluirEntidade(request.params.id);
       if (!excluida) {
         return reply.code(404).send({ message: "Entidade não encontrada" });
@@ -171,36 +177,35 @@ export async function tabelasRoutes(app: FastifyInstance) {
     },
   );
 
-  /* ── Departamentos ──────────────────────────────────────────────────── */
+  /* ── Setores ────────────────────────────────────────────────────────── */
 
-  app.get<{ Reply: ApiListResponse<Departamento> }>(
-    "/tabelas/departamentos",
+  app.get<{ Reply: ApiListResponse<Setor> }>(
+    "/tabelas/setores",
     {
-      onRequest: [app.authenticate],
-      schema: { tags: ["Tabelas — Departamentos"], summary: "Lista todos os departamentos" },
+      onRequest: [app.authenticate, bloquearColaborador],
+      schema: { tags: ["Tabelas — Setores"], summary: "Lista todos os setores" },
     },
     async () => {
-      const departamentos = await listDepartamentosCompleto();
-      return { data: departamentos, total: departamentos.length };
+      const setores = await listSetoresCompleto();
+      return { data: setores, total: setores.length };
     },
   );
 
   app.post<{
-    Body: DepartamentoInput;
-    Reply: ApiResponse<Departamento> | { message: string };
+    Body: SetorInput;
+    Reply: ApiResponse<Setor> | { message: string };
   }>(
-    "/tabelas/departamentos",
+    "/tabelas/setores",
     {
-      onRequest: [app.authenticate],
+      onRequest: [app.authenticate, exigirPapeis()],
       schema: {
-        tags: ["Tabelas — Departamentos"],
-        summary: "Cria um departamento",
+        tags: ["Tabelas — Setores"],
+        summary: "Cria um setor",
         body: {
           type: "object",
           required: ["nome"],
           properties: {
             nome: { type: "string", minLength: 1 },
-            descricao: { type: ["string", "null"] },
           },
           additionalProperties: false,
         },
@@ -208,11 +213,11 @@ export async function tabelasRoutes(app: FastifyInstance) {
     },
     async (request, reply) => {
       try {
-        const departamento = await criarDepartamento(request.body);
-        return reply.code(201).send({ data: departamento });
+        const setor = await criarSetor(request.body);
+        return reply.code(201).send({ data: setor });
       } catch (error) {
         const tratado = tratarErroPg(error, {
-          unique: "Já existe um departamento com esse nome.",
+          unique: "Já existe um setor com esse nome.",
         });
         if (tratado) return reply.code(tratado.status).send({ message: tratado.message });
         throw error;
@@ -222,21 +227,20 @@ export async function tabelasRoutes(app: FastifyInstance) {
 
   app.patch<{
     Params: { id: string };
-    Body: DepartamentoInput;
-    Reply: ApiResponse<Departamento> | { message: string };
+    Body: SetorInput;
+    Reply: ApiResponse<Setor> | { message: string };
   }>(
-    "/tabelas/departamentos/:id",
+    "/tabelas/setores/:id",
     {
-      onRequest: [app.authenticate],
+      onRequest: [app.authenticate, exigirPapeis()],
       schema: {
-        tags: ["Tabelas — Departamentos"],
-        summary: "Atualiza um departamento",
+        tags: ["Tabelas — Setores"],
+        summary: "Atualiza um setor",
         body: {
           type: "object",
           required: ["nome"],
           properties: {
             nome: { type: "string", minLength: 1 },
-            descricao: { type: ["string", "null"] },
           },
           additionalProperties: false,
         },
@@ -244,14 +248,14 @@ export async function tabelasRoutes(app: FastifyInstance) {
     },
     async (request, reply) => {
       try {
-        const departamento = await atualizarDepartamento(request.params.id, request.body);
-        if (!departamento) {
-          return reply.code(404).send({ message: "Departamento não encontrado" });
+        const setor = await atualizarSetor(request.params.id, request.body);
+        if (!setor) {
+          return reply.code(404).send({ message: "Setor não encontrado" });
         }
-        return { data: departamento };
+        return { data: setor };
       } catch (error) {
         const tratado = tratarErroPg(error, {
-          unique: "Já existe um departamento com esse nome.",
+          unique: "Já existe um setor com esse nome.",
         });
         if (tratado) return reply.code(tratado.status).send({ message: tratado.message });
         throw error;
@@ -260,21 +264,21 @@ export async function tabelasRoutes(app: FastifyInstance) {
   );
 
   app.delete<{ Params: { id: string }; Reply: { message: string } | undefined }>(
-    "/tabelas/departamentos/:id",
+    "/tabelas/setores/:id",
     {
-      onRequest: [app.authenticate],
-      schema: { tags: ["Tabelas — Departamentos"], summary: "Exclui um departamento" },
+      onRequest: [app.authenticate, exigirPapeis()],
+      schema: { tags: ["Tabelas — Setores"], summary: "Exclui um setor" },
     },
     async (request, reply) => {
       try {
-        const excluido = await excluirDepartamento(request.params.id);
+        const excluido = await excluirSetor(request.params.id);
         if (!excluido) {
-          return reply.code(404).send({ message: "Departamento não encontrado" });
+          return reply.code(404).send({ message: "Setor não encontrado" });
         }
         return reply.code(204).send(undefined);
       } catch (error) {
         const tratado = tratarErroPg(error, {
-          fk: "Não é possível excluir: há usuários vinculados a este departamento.",
+          fk: "Não é possível excluir: há usuários vinculados a este setor.",
         });
         if (tratado) return reply.code(tratado.status).send({ message: tratado.message });
         throw error;
@@ -287,7 +291,7 @@ export async function tabelasRoutes(app: FastifyInstance) {
   app.get<{ Reply: ApiListResponse<Funcao> }>(
     "/tabelas/funcoes",
     {
-      onRequest: [app.authenticate],
+      onRequest: [app.authenticate, bloquearColaborador],
       schema: { tags: ["Tabelas — Funções"], summary: "Lista todas as funções" },
     },
     async () => {
@@ -302,7 +306,7 @@ export async function tabelasRoutes(app: FastifyInstance) {
   }>(
     "/tabelas/funcoes",
     {
-      onRequest: [app.authenticate],
+      onRequest: [app.authenticate, exigirPapeis()],
       schema: {
         tags: ["Tabelas — Funções"],
         summary: "Cria uma função",
@@ -338,7 +342,7 @@ export async function tabelasRoutes(app: FastifyInstance) {
   }>(
     "/tabelas/funcoes/:id",
     {
-      onRequest: [app.authenticate],
+      onRequest: [app.authenticate, exigirPapeis()],
       schema: {
         tags: ["Tabelas — Funções"],
         summary: "Atualiza uma função",
@@ -373,7 +377,7 @@ export async function tabelasRoutes(app: FastifyInstance) {
   app.delete<{ Params: { id: string }; Reply: { message: string } | undefined }>(
     "/tabelas/funcoes/:id",
     {
-      onRequest: [app.authenticate],
+      onRequest: [app.authenticate, exigirPapeis()],
       schema: { tags: ["Tabelas — Funções"], summary: "Exclui uma função" },
     },
     async (request, reply) => {
@@ -398,7 +402,7 @@ export async function tabelasRoutes(app: FastifyInstance) {
   app.get<{ Reply: ApiListResponse<Papel> }>(
     "/tabelas/papeis",
     {
-      onRequest: [app.authenticate],
+      onRequest: [app.authenticate, bloquearColaborador],
       schema: { tags: ["Tabelas — Papéis"], summary: "Lista todos os papéis" },
     },
     async () => {
@@ -413,7 +417,7 @@ export async function tabelasRoutes(app: FastifyInstance) {
   }>(
     "/tabelas/papeis",
     {
-      onRequest: [app.authenticate],
+      onRequest: [app.authenticate, exigirPapeis()],
       schema: {
         tags: ["Tabelas — Papéis"],
         summary: "Cria um papel",
@@ -450,7 +454,7 @@ export async function tabelasRoutes(app: FastifyInstance) {
   }>(
     "/tabelas/papeis/:id",
     {
-      onRequest: [app.authenticate],
+      onRequest: [app.authenticate, exigirPapeis()],
       schema: {
         tags: ["Tabelas — Papéis"],
         summary: "Atualiza um papel",
@@ -486,7 +490,7 @@ export async function tabelasRoutes(app: FastifyInstance) {
   app.delete<{ Params: { id: string }; Reply: { message: string } | undefined }>(
     "/tabelas/papeis/:id",
     {
-      onRequest: [app.authenticate],
+      onRequest: [app.authenticate, exigirPapeis()],
       schema: { tags: ["Tabelas — Papéis"], summary: "Exclui um papel" },
     },
     async (request, reply) => {

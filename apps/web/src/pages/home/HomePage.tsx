@@ -1,98 +1,55 @@
+import { AppLayout } from '@/features/app/components'
+import { Skeleton } from '@/components/ui/skeleton'
+import { useAuth } from '@/features/auth/context'
 import {
-  BarChart3,
-  CalendarClock,
-  ClipboardList,
-  UsersRound,
-} from "lucide-react"
-
-import { AppLayout } from "@/features/app/components"
-import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
-
-const metrics = [
-  {
-    label: "Funcionários ativos",
-    value: "128",
-    description: "Cadastro inicial do RH",
-    icon: UsersRound,
-  },
-  {
-    label: "Folhas em aberto",
-    value: "3",
-    description: "Competências aguardando conferência",
-    icon: ClipboardList,
-  },
-  {
-    label: "Eventos hoje",
-    value: "9",
-    description: "Pendências operacionais",
-    icon: CalendarClock,
-  },
-]
+  AniversariantesCard,
+  AppsLinksCard,
+  ComunicadosCarousel,
+  FeriasStatusCard,
+} from '@/features/home/components'
+import { useHomeDashboard } from '@/features/home/hooks'
+import { NovoComunicadoDialog, ComunicadosPendentesCard, AnunciosAtivosDialog, AnunciosAgendadosDialog } from '@/features/comunicacao/components'
 
 /**
- * Home inicial do ERP após o login local.
+ * Dashboard inicial (rota /home — "Dashboard" na sidebar). Comunicados vêm
+ * da API real; férias e aniversariantes ainda são estáticos (ver
+ * features/home/services/homeService.ts).
  */
+
 export function HomePage() {
+  const { data, isLoading, recarregar } = useHomeDashboard()
+  const { usuario } = useAuth()
+  const podeCriarComunicado = usuario?.papelCodigo !== 'COLABORADOR'
+  const ehRH = usuario?.papelCodigo === 'RH' || usuario?.papelCodigo === 'ADMIN'
+
   return (
     <AppLayout
-      title="Home do ERP"
-      description="Visão geral inicial do IntegraRH"
+      title="Anúncios"
+      description="Home / Anúncios"
+      actions={
+        <div className="flex items-center gap-2">
+          {ehRH && <AnunciosAtivosDialog onRemovido={recarregar} />}
+          {ehRH && <AnunciosAgendadosDialog onRemovido={recarregar} />}
+          {podeCriarComunicado && <NovoComunicadoDialog onCriado={recarregar} />}
+        </div>
+      }
     >
-      <section className="flex w-full flex-col gap-6">
-        <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
-          <div className="space-y-2">
-            <Badge variant="outline">Ambiente sem autenticação real</Badge>
-            <div>
-              <h2 className="text-3xl font-semibold tracking-tight">
-                Resumo operacional
-              </h2>
-              <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
-                Área inicial para validar o fluxo de login enquanto o banco e
-                as tabelas de usuários ainda não existem.
-              </p>
-            </div>
+      {isLoading || !data ? (
+        <Skeleton className="h-64 w-full" />
+      ) : (
+        <div className="flex flex-col gap-6">
+          {ehRH && <ComunicadosPendentesCard />}
+
+          <ComunicadosCarousel comunicados={data.comunicados} />
+
+          <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
+            <AppsLinksCard />
+            <FeriasStatusCard {...data.ferias} />
+            <AniversariantesCard aniversariantes={data.aniversariantes} />
           </div>
-          <Button className="md:self-end">
-            <BarChart3 className="h-4 w-4" />
-            Ver indicadores
-          </Button>
+          
         </div>
-
-        <div className="grid gap-4 md:grid-cols-3">
-          {metrics.map((metric) => {
-            const Icon = metric.icon
-
-            return (
-              <Card key={metric.label}>
-                <CardHeader className="flex flex-row items-center justify-between space-y-0">
-                  <div>
-                    <CardDescription>{metric.label}</CardDescription>
-                    <CardTitle className="mt-2 text-2xl">
-                      {metric.value}
-                    </CardTitle>
-                  </div>
-                  <span className="flex h-10 w-10 items-center justify-center rounded-md bg-muted text-muted-foreground">
-                    <Icon className="h-5 w-5" />
-                  </span>
-                </CardHeader>
-                <CardContent>
-                  <p className="text-sm text-muted-foreground">
-                    {metric.description}
-                  </p>
-                </CardContent>
-              </Card>
-            )
-          })}
-        </div>
-      </section>
+      )}
     </AppLayout>
   )
 }

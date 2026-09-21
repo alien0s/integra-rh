@@ -1,5 +1,25 @@
 /** Ícone exibido no cartão de ação embutido. */
-export type NotificacaoCartaoIcone = 'arquivo' | 'documento' | 'curso'
+export type NotificacaoCartaoIcone = 'arquivo' | 'documento' | 'curso' | 'obrigacao'
+
+/**
+ * Notificação padrão do sistema lembrando de solicitar férias (obrigação
+ * recorrente, sem ator) — avatar com Palmtree em vez de "?". Notificações de
+ * EVENTO de férias (alguém solicitou/aprovou/etc., tipo "FERIAS_...") têm um
+ * ator de verdade e continuam mostrando a foto da pessoa.
+ */
+export function ehNotificacaoDeFerias(tipo?: string): boolean {
+  return Boolean(tipo && tipo.startsWith('OBRIGACAO_FERIAS'))
+}
+
+/**
+ * Pra onde navegar ao clicar numa notificação de obrigação recorrente (por
+ * `tipo` — ver lib/obrigacoes.ts no backend, que sempre usa o prefixo
+ * "OBRIGACAO_"). Adicione uma entrada aqui ao registrar uma nova obrigação
+ * lá; sem entrada, a notificação simplesmente não é clicável.
+ */
+export const ROTA_POR_TIPO_OBRIGACAO: Record<string, string> = {
+  OBRIGACAO_FERIAS_SOLICITAR: '/ferias',
+}
 
 /**
  * Cartão de ação embutido numa notificação (ex.: um pedido de acesso a um

@@ -4,6 +4,5 @@ export type {
   UsuarioView,
   OpcaoSelecao,
   AtualizarUsuarioInput,
-  PapelDisponivel,
+  AtividadeUsuario,
 } from './Usuario'
-export { PAPEIS } from './Usuario'

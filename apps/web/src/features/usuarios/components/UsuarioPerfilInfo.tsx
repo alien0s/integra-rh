@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import type { LucideIcon } from 'lucide-react'
 import {
+  SquareUser,
+  Barcode,
   Briefcase,
   Building2,
   Cake,
@@ -9,6 +11,7 @@ import {
   CheckCircle2,
   Clock,
   Fingerprint,
+  Hash,
   Heart,
   IdCard,
   Landmark,
@@ -17,7 +20,7 @@ import {
   Phone,
   UserRound,
   VenusAndMars,
-  Wallet,
+  Wallet
 } from 'lucide-react'
 
 import {
@@ -45,6 +48,12 @@ const moedaBRL = new Intl.NumberFormat('pt-BR', {
   currency: 'BRL',
 })
 
+/** Rótulo de exibição do tipo de vínculo (mesmos códigos da coluna users.tipo_funcionario). */
+const TIPO_FUNCIONARIO_LABEL: Record<string, string> = {
+  COLABORADOR: 'Colaborador',
+  'APRENDIZ/ESTAGIÁRIO': 'Aprendiz/Estagiário',
+}
+
 /**
  * Bloco de informações do perfil do funcionário, com ícones.
  * Os campos espelham a tabela `users` do banco. E-mail, telefone e CPF
@@ -60,15 +69,43 @@ export function UsuarioPerfilInfo({ usuario }: UsuarioPerfilInfoProps) {
     }
   }, [])
 
-  async function copiar(label: string, value: string) {
-    try {
-      await navigator.clipboard.writeText(value)
-      setCopiado(label)
-      if (timeoutRef.current) clearTimeout(timeoutRef.current)
-      timeoutRef.current = setTimeout(() => setCopiado(null), 2000)
-    } catch {
-      // Sem permissão de clipboard — ignora silenciosamente.
+  /**
+   * Copia via Clipboard API quando disponível (contexto seguro: HTTPS ou
+   * localhost). Em HTTP puro por IP (ex.: acesso pela VM), a API não existe
+   * ou falha — usa o fallback do textarea + execCommand nesse caso.
+   */
+  async function copiarParaAreaDeTransferencia(value: string): Promise<boolean> {
+    if (navigator.clipboard && window.isSecureContext) {
+      try {
+        await navigator.clipboard.writeText(value)
+        return true
+      } catch {
+        // Cai no fallback abaixo.
+      }
     }
+
+    try {
+      const textarea = document.createElement('textarea')
+      textarea.value = value
+      textarea.style.position = 'fixed'
+      textarea.style.opacity = '0'
+      document.body.appendChild(textarea)
+      textarea.focus()
+      textarea.select()
+      const copiado = document.execCommand('copy')
+      document.body.removeChild(textarea)
+      return copiado
+    } catch {
+      return false
+    }
+  }
+
+  async function copiar(label: string, value: string) {
+    const sucesso = await copiarParaAreaDeTransferencia(value)
+    if (!sucesso) return
+    setCopiado(label)
+    if (timeoutRef.current) clearTimeout(timeoutRef.current)
+    timeoutRef.current = setTimeout(() => setCopiado(null), 2000)
   }
 
   const items: InfoItem[] = [
@@ -119,7 +156,14 @@ export function UsuarioPerfilInfo({ usuario }: UsuarioPerfilInfoProps) {
       copiavel: true,
     },
     { icon: Briefcase, label: 'Função', value: usuario.funcao },
-    { icon: Building2, label: 'Departamento', value: usuario.departamento },
+    { icon: Building2, label: 'Setor', value: usuario.setor },
+    {
+      icon: SquareUser,
+      label: 'Tipo de vínculo',
+      value: usuario.tipoFuncionario
+        ? (TIPO_FUNCIONARIO_LABEL[usuario.tipoFuncionario] ?? usuario.tipoFuncionario)
+        : undefined,
+    },
     {
       icon: Wallet,
       label: 'Salário',
@@ -129,6 +173,18 @@ export function UsuarioPerfilInfo({ usuario }: UsuarioPerfilInfoProps) {
     { icon: CalendarX, label: 'Demissão', value: usuario.dataDemissao },
     { icon: UserRound, label: 'Gestor', value: usuario.gestor },
     { icon: Clock, label: 'Último acesso', value: usuario.ultimoAcesso },
+    {
+      icon: Hash,
+      label: 'Código APS',
+      value: usuario.codigoAps ?? undefined,
+      copiavel: true,
+    },
+    {
+      icon: Barcode,
+      label: 'Código APS + Entidade',
+      value: usuario.codigoApsEntidade ?? undefined,
+      copiavel: true,
+    },
   ]
 
   const visibleItems = items.filter((item) => Boolean(item.value))

@@ -17,6 +17,14 @@ export interface AppLayoutProps {
   actions?: ReactNode
   breadcrumbs?: AppHeaderBreadcrumbItem[]
   children: ReactNode
+  /**
+   * Quando true, trava a área de conteúdo na altura da viewport (sidebar e
+   * cabeçalho fixos) e quem rola é o próprio `<main>` — para telas com uma
+   * lista/tabela grande que deve ter scroll interno em vez de esticar a
+   * página inteira. Padrão false: comportamento de sempre (a página cresce
+   * com o conteúdo e quem rola é o navegador) — não afeta as demais telas.
+   */
+  fillHeight?: boolean
 }
 
 const layoutFrameClass = "mx-auto w-full max-w-[1536px]"
@@ -31,22 +39,25 @@ export function AppLayout({
   actions,
   breadcrumbs,
   children,
+  fillHeight = false,
 }: AppLayoutProps) {
   const { open, setOpen } = useTabletSidebar()
 
   return (
     <SidebarProvider open={open} onOpenChange={setOpen}>
       <AppSidebar />
-      <SidebarInset>
+      <SidebarInset className={`min-w-0 ${fillHeight ? "h-svh overflow-hidden" : ""}`}>
         <AppHeader
           title={title}
           description={description}
           actions={actions}
           breadcrumbs={breadcrumbs}
-          className={`${layoutFrameClass} ${layoutSpacingClass}`}
+          className={`${layoutFrameClass} ${layoutSpacingClass} ${fillHeight ? "shrink-0" : ""}`}
         />
         <main
-          className={`${layoutFrameClass} ${layoutSpacingClass} flex flex-1 flex-col py-6 lg:py-8`}
+          className={`${layoutFrameClass} ${layoutSpacingClass} flex min-w-0 flex-1 flex-col py-6 lg:py-8 ${
+            fillHeight ? "min-h-0 overflow-hidden" : ""
+          }`}
         >
           {children}
         </main>

@@ -1,141 +1,200 @@
-import type { CursosData } from '../types'
+import { getToken } from '@/lib/auth'
+import type {
+  CursoQualificacao,
+  FormacaoAcademica,
+  FuncionarioQualificacoes,
+  Idioma,
+  NovaFormacaoInput,
+  NovoCursoInput,
+  NovoIdiomaInput,
+  QualificacoesDeUsuario,
+  QualificacoesResumo,
+} from '../types'
 
-const mockData: CursosData = {
-  stats: {
-    formados: { count: 128, total: 160, trend: 2.8 },
-    emFormacao: { count: 67, total: 160, trend: 3.5 },
-    cursosRapidos: { count: 94, total: 160, trend: -1.9 },
-  },
-  formacoes: [
-    {
-      id: '1',
-      curso: 'Graduação em Administração de Empresas',
-      instituicao: 'Universidade de São Paulo (USP)',
-      periodo: '2018 - 2022',
-      status: 'CONCLUÍDO',
-      verificado: true,
-    },
-    {
-      id: '2',
-      curso: 'MBA em Gestão Estratégica de Pessoas',
-      instituicao: 'Fundação Getulio Vargas (FGV)',
-      periodo: '2023 - Presente',
-      status: 'EM ANDAMENTO',
-    },
-  ],
-  idiomas: [
-    { id: '1', idioma: 'Inglês', nivel: 'Avançado (C1)', progresso: 85 },
-    { id: '2', idioma: 'Espanhol', nivel: 'Intermediário (B2)', progresso: 50 },
-    { id: '3', idioma: 'Francês', nivel: 'Básico (A2)', progresso: 25 },
-  ],
-  certificacoes: [
-    {
-      id: '1',
-      nome: 'PMP - Project Management Professional',
-      emissor: 'PMI Institute',
-      validade: 'Expira em jan. 2026',
-      icone: 'shield',
-    },
-    {
-      id: '2',
-      nome: 'AWS Certified Cloud Practitioner',
-      emissor: 'Amazon Web Services',
-      validade: 'Emitido em 2023',
-      icone: 'cloud',
-    },
-  ],
-  cursos: [
-    {
-      id: '1',
-      nome: 'Liderança de Equipes de Alta Performance',
-      escola: 'Escola de Gestão',
-      cargaHoraria: '40h',
-      ano: '2024',
-      linkCertificado: '#',
-    },
-    {
-      id: '2',
-      nome: 'Excel Avançado para Dashboards',
-      escola: 'LinkedIn Learning',
-      cargaHoraria: '16h',
-      ano: '2023',
-      linkCertificado: '#',
-    },
-    {
-      id: '3',
-      nome: 'Design Thinking em Processos de RH',
-      escola: 'Workshop interno',
-      cargaHoraria: '8h',
-      ano: '2023',
-      linkCertificado: '#',
-    },
-  ],
-  funcionariosCursosSuperiores: [
-    {
-      id: '1',
-      nome: 'Ana Carolina Souza',
-      cargo: 'Analista de RH',
-      departamento: 'Gestão de Pessoas',
-      fotoUrl: 'https://i.pravatar.cc/96?img=47',
-      iniciais: 'AS',
-      cursosSuperiores: ['Administração', 'Gestão de Pessoas', 'Psicologia Organizacional'],
-      emAndamento: [],
-      cursosRapidos: ['Liderança (Curso rápido)'],
-    },
-    {
-      id: '2',
-      nome: 'Bruno Martins',
-      cargo: 'Coordenador Financeiro',
-      departamento: 'Finanças',
-      fotoUrl: 'https://i.pravatar.cc/96?img=12',
-      iniciais: 'BM',
-      cursosSuperiores: ['Ciências Contábeis', 'Economia'],
-      emAndamento: ['Gestão Financeira'],
-      cursosRapidos: [],
-    },
-    {
-      id: '3',
-      nome: 'Camila Rocha',
-      cargo: 'Supervisora Pedagógica',
-      departamento: 'Educação',
-      fotoUrl: 'https://i.pravatar.cc/96?img=32',
-      iniciais: 'CR',
-      cursosSuperiores: ['Pedagogia', 'Letras', 'Psicopedagogia', 'Gestão Escolar'],
-      emAndamento: ['Design Instrucional'],
-      cursosRapidos: ['Workshop de Educação Inclusiva'],
-    },
-    {
-      id: '4',
-      nome: 'Diego Almeida',
-      cargo: 'Analista de Sistemas',
-      departamento: 'Tecnologia',
-      fotoUrl: 'https://i.pravatar.cc/96?img=68',
-      iniciais: 'DA',
-      cursosSuperiores: ['Sistemas de Informação'],
-      emAndamento: [],
-      cursosRapidos: ['AWS Cloud', 'Cibersegurança (Workshop)'],
-    },
-    {
-      id: '5',
-      nome: 'Fernanda Lima',
-      cargo: 'Assistente Administrativo',
-      departamento: 'Administrativo',
-      fotoUrl: 'https://i.pravatar.cc/96?img=26',
-      iniciais: 'FL',
-      cursosSuperiores: [],
-      emAndamento: ['Administração'],
-      cursosRapidos: ['Excel Avançado'],
-    },
-  ],
+/**
+ * Service de Cursos e Qualificações — chamadas HTTP à API (via proxy /api).
+ * Sem estado/UI.
+ */
+
+const API_URL = '/api'
+
+function authHeaders(): HeadersInit {
+  const token = getToken()
+  return token ? { Authorization: `Bearer ${token}` } : {}
+}
+
+function jsonHeaders(): HeadersInit {
+  return { 'Content-Type': 'application/json', ...authHeaders() }
+}
+
+interface ApiResponse<T> {
+  data: T
+}
+interface ApiListResponse<T> {
+  data: T[]
+  total: number
+}
+
+async function lancarErro(response: Response, fallback: string): Promise<never> {
+  const corpo = (await response.json().catch(() => null)) as {
+    message?: string
+  } | null
+  throw new Error(corpo?.message ?? fallback)
+}
+
+function resolverAvatar(url: string): string {
+  if (!url) return ''
+  if (url.startsWith('http') || url.startsWith('data:')) return url
+  return `${API_URL}${url}`
+}
+
+interface MinhasQualificacoes {
+  formacoes: FormacaoAcademica[]
+  cursos: CursoQualificacao[]
+  idiomas: Idioma[]
 }
 
 export const cursosService = {
-  /**
-   * Busca os dados completos de cursos e qualificações.
-   */
-  async getCursosData(): Promise<CursosData> {
-    return new Promise((resolve) => {
-      setTimeout(() => resolve(mockData), 400)
+  /** Estatísticas agregadas (cards do topo da Visão geral). */
+  async getResumo(): Promise<QualificacoesResumo> {
+    const response = await fetch(`${API_URL}/qualificacoes/resumo`, {
+      headers: authHeaders(),
     })
+    if (!response.ok) return lancarErro(response, 'Falha ao buscar o resumo')
+    const json = (await response.json()) as ApiResponse<QualificacoesResumo>
+    return json.data
+  },
+
+  /** Colaboradores com a contagem de qualificações aprovadas (tabela da Visão geral). */
+  async getFuncionarios(): Promise<FuncionarioQualificacoes[]> {
+    const response = await fetch(`${API_URL}/qualificacoes/funcionarios`, {
+      headers: authHeaders(),
+    })
+    if (!response.ok) return lancarErro(response, 'Falha ao buscar funcionários')
+    const json = (await response.json()) as ApiListResponse<FuncionarioQualificacoes>
+    return json.data.map((f) => ({ ...f, fotoUrl: resolverAvatar(f.fotoUrl) }))
+  },
+
+  /** Minhas qualificações (aba Pessoal — inclui pendentes/recusadas). */
+  async getMinhas(): Promise<MinhasQualificacoes> {
+    const response = await fetch(`${API_URL}/qualificacoes/minhas`, {
+      headers: authHeaders(),
+    })
+    if (!response.ok) return lancarErro(response, 'Falha ao buscar suas qualificações')
+    const json = (await response.json()) as ApiResponse<MinhasQualificacoes>
+    return json.data
+  },
+
+  /** Qualificações aprovadas de outro colaborador (linha expandida da tabela). */
+  async getDeUsuario(usuarioId: string): Promise<QualificacoesDeUsuario> {
+    const response = await fetch(`${API_URL}/qualificacoes/usuario/${usuarioId}`, {
+      headers: authHeaders(),
+    })
+    if (!response.ok) return lancarErro(response, 'Falha ao buscar qualificações do colaborador')
+    const json = (await response.json()) as ApiResponse<QualificacoesDeUsuario>
+    return json.data
+  },
+
+  async criarFormacao(input: NovaFormacaoInput): Promise<FormacaoAcademica> {
+    const response = await fetch(`${API_URL}/qualificacoes/formacoes`, {
+      method: 'POST',
+      headers: jsonHeaders(),
+      body: JSON.stringify(input),
+    })
+    if (!response.ok) return lancarErro(response, 'Falha ao cadastrar a formação')
+    const json = (await response.json()) as ApiResponse<FormacaoAcademica>
+    return json.data
+  },
+
+  async excluirFormacao(id: string): Promise<void> {
+    const response = await fetch(`${API_URL}/qualificacoes/formacoes/${id}`, {
+      method: 'DELETE',
+      headers: authHeaders(),
+    })
+    if (!response.ok) return lancarErro(response, 'Falha ao excluir a formação')
+  },
+
+  async criarCurso(input: NovoCursoInput): Promise<CursoQualificacao> {
+    const response = await fetch(`${API_URL}/qualificacoes/cursos`, {
+      method: 'POST',
+      headers: jsonHeaders(),
+      body: JSON.stringify(input),
+    })
+    if (!response.ok) return lancarErro(response, 'Falha ao cadastrar o registro')
+    const json = (await response.json()) as ApiResponse<CursoQualificacao>
+    return json.data
+  },
+
+  async excluirCurso(id: string): Promise<void> {
+    const response = await fetch(`${API_URL}/qualificacoes/cursos/${id}`, {
+      method: 'DELETE',
+      headers: authHeaders(),
+    })
+    if (!response.ok) return lancarErro(response, 'Falha ao excluir o registro')
+  },
+
+  async criarOuAtualizarIdioma(input: NovoIdiomaInput): Promise<Idioma> {
+    const response = await fetch(`${API_URL}/qualificacoes/idiomas`, {
+      method: 'POST',
+      headers: jsonHeaders(),
+      body: JSON.stringify({ ...input, origemAvaliacao: 'AUTODECLARADO' }),
+    })
+    if (!response.ok) return lancarErro(response, 'Falha ao cadastrar o idioma')
+    const json = (await response.json()) as ApiResponse<Idioma>
+    return json.data
+  },
+
+  async excluirIdioma(id: string): Promise<void> {
+    const response = await fetch(`${API_URL}/qualificacoes/idiomas/${id}`, {
+      method: 'DELETE',
+      headers: authHeaders(),
+    })
+    if (!response.ok) return lancarErro(response, 'Falha ao excluir o idioma')
+  },
+
+  /** Envia (ou troca) o diploma/comprovante de uma formação acadêmica. */
+  async enviarAnexoFormacao(id: string, arquivo: File): Promise<FormacaoAcademica> {
+    const formData = new FormData()
+    formData.append('diploma', arquivo)
+    const response = await fetch(`${API_URL}/qualificacoes/formacoes/${id}/anexo`, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: formData,
+    })
+    if (!response.ok) return lancarErro(response, 'Falha ao enviar o diploma')
+    const json = (await response.json()) as ApiResponse<FormacaoAcademica>
+    return json.data
+  },
+
+  /** Baixa o diploma/comprovante de uma formação acadêmica (blob autenticado). */
+  async baixarAnexoFormacao(id: string): Promise<Blob> {
+    const response = await fetch(`${API_URL}/qualificacoes/formacoes/${id}/anexo`, {
+      headers: authHeaders(),
+    })
+    if (!response.ok) return lancarErro(response, 'Falha ao baixar o diploma')
+    return response.blob()
+  },
+
+  /** Envia (ou troca) o certificado de um curso/workshop/certificação. */
+  async enviarCertificadoCurso(id: string, arquivo: File): Promise<CursoQualificacao> {
+    const formData = new FormData()
+    formData.append('certificado', arquivo)
+    const response = await fetch(`${API_URL}/qualificacoes/cursos/${id}/anexo`, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: formData,
+    })
+    if (!response.ok) return lancarErro(response, 'Falha ao enviar o certificado')
+    const json = (await response.json()) as ApiResponse<CursoQualificacao>
+    return json.data
+  },
+
+  /** Baixa o certificado de um curso/workshop/certificação (blob autenticado). */
+  async baixarCertificadoCurso(id: string): Promise<Blob> {
+    const response = await fetch(`${API_URL}/qualificacoes/cursos/${id}/anexo`, {
+      headers: authHeaders(),
+    })
+    if (!response.ok) return lancarErro(response, 'Falha ao baixar o certificado')
+    return response.blob()
   },
 }

@@ -6,7 +6,8 @@ export interface Usuario {
   nome: string
   email: string
   funcao: string
-  departamento: string
+  setor: string
+  entidade: string | null
   status: 'Ativo' | 'Inativo'
   fotoUrl: string
   iniciais: string
@@ -34,46 +35,53 @@ export interface Usuario {
   numeroBanco?: string | null
   numeroConta?: string | null
   digitoConta?: string | null
+  /** Código de matrícula do funcionário no APS (enrollment_code), ex.: "1119". */
+  codigoAps?: string | null
+  /** Código APS + código da entidade combinados, ex.: "1119164122". */
+  codigoApsEntidade?: string | null
+  /** Tipo de vínculo (CLT): "COLABORADOR" (padrão) ou "APRENDIZ/ESTAGIÁRIO". */
+  tipoFuncionario?: string | null
 }
-
-/** Papel disponível para seleção (código + rótulo). */
-export interface PapelDisponivel {
-  codigo: string
-  label: string
-}
-
-/** Vocabulário de papéis (mesmos códigos do seed 002_user_roles). */
-export const PAPEIS: PapelDisponivel[] = [
-  { codigo: 'COLABORADOR', label: 'Colaborador' },
-  { codigo: 'GESTOR', label: 'Gestor / Gerente' },
-  { codigo: 'DP', label: 'Departamento Pessoal' },
-  { codigo: 'RH', label: 'RH' },
-  { codigo: 'DIRETORIA', label: 'Diretoria' },
-  { codigo: 'ADMIN', label: 'Administrador do sistema' },
-]
 
 export type UsuarioTableColumn =
   | 'nome'
   | 'email'
   | 'funcao'
-  | 'departamento'
+  | 'setor'
   | 'status'
 
 /** Modo de visualização da listagem de usuários. */
 export type UsuarioView = 'tabela' | 'quadro' | 'lista'
 
-/** Opção genérica id/nome para dropdowns (departamentos, funções). */
+/** Opção genérica id/nome para dropdowns (setores, funções). */
 export interface OpcaoSelecao {
   id: string
   nome: string
+  /** Só nos setores: nome do gestor atual (para avisar antes de substituir). */
+  gestorNome?: string | null
 }
 
 /** Campos editáveis de um usuário (modal de edição). */
 export interface AtualizarUsuarioInput {
   cpf: string | null
   telefone: string | null
-  departamentoId: string | null
+  setorId: string | null
+  entidadeId: string | null
   funcaoId: string | null
   /** Código do papel/perfil de acesso (ex.: "ADMIN") ou null. */
   roleCodigo: string | null
+}
+
+/**
+ * Uma atividade recente do usuário (o que ELE fez no sistema — não uma
+ * notificação que recebeu). Exibida no card "Atividades recentes" do perfil.
+ */
+export interface AtividadeUsuario {
+  id: string
+  acao: string
+  detalhe: string
+  tempo: string
+  /** Para quem essa ação foi (ex.: quem recebeu a férias aprovada/recusada). */
+  destinatarioNome: string
+  icone: 'arquivo' | 'documento' | 'curso' | 'obrigacao'
 }

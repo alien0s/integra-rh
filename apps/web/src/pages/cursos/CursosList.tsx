@@ -11,7 +11,7 @@ import { Grid2x2Check, Users } from 'lucide-react'
  * Página de composição da área de cursos e qualificações.
  */
 export function CursosList() {
-  const { data, isLoading } = useCursos()
+  const cursos = useCursos()
 
   return (
     <Tabs defaultValue="visao-geral" className="flex flex-col w-full">
@@ -31,7 +31,7 @@ export function CursosList() {
           </TabsList>
         }
       >
-        {isLoading || !data ? <CursosSkeleton /> : <CursosOverview data={data} />}
+        {cursos.isLoading ? <CursosSkeleton /> : <CursosOverview data={cursos} />}
       </AppLayout>
     </Tabs>
   )

@@ -22,7 +22,7 @@ export function FeriasResumoCards({ resumo }: FeriasResumoCardsProps) {
   const cards: CardConfig[] = [
     { label: 'Dias disponíveis', valor: String(resumo.diasDisponiveis).padStart(2, '0'), icon: CalendarCheck2 },
     { label: 'Dias agendados', valor: String(resumo.diasAgendados).padStart(2, '0'), icon: CalendarClock },
-    { label: 'Período aquisitivo', valor: resumo.periodoAquisitivo, icon: CalendarRange },
+    { label: 'Ciclo', valor: resumo.periodoAquisitivo, icon: CalendarRange },
   ]
 
   return (

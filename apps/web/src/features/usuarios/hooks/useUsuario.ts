@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 
 import type { AtualizarUsuarioInput, Usuario } from '@/features/usuarios/types'
 import { usuariosService } from '@/features/usuarios/services'
@@ -12,33 +12,25 @@ export function useUsuario(id: string | undefined) {
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  useEffect(() => {
+  const recarregar = useCallback(async () => {
     if (!id) {
       setIsLoading(false)
       return
     }
-
-    let ativo = true
-
-    async function carregar() {
-      setIsLoading(true)
-      setError(null)
-      try {
-        const data = await usuariosService.getUsuario(id as string)
-        if (ativo) setUsuario(data)
-      } catch {
-        if (ativo) setError('Não foi possível carregar o usuário.')
-      } finally {
-        if (ativo) setIsLoading(false)
-      }
-    }
-
-    carregar()
-
-    return () => {
-      ativo = false
+    setIsLoading(true)
+    setError(null)
+    try {
+      setUsuario(await usuariosService.getUsuario(id))
+    } catch {
+      setError('Não foi possível carregar o usuário.')
+    } finally {
+      setIsLoading(false)
     }
   }, [id])
+
+  useEffect(() => {
+    recarregar()
+  }, [recarregar])
 
   /**
    * Faz upload de uma nova foto (Blob já recortado) e atualiza o avatar
@@ -57,5 +49,5 @@ export function useUsuario(id: string | undefined) {
     setUsuario(atualizado)
   }
 
-  return { usuario, isLoading, error, atualizarAvatar, atualizarUsuario }
+  return { usuario, isLoading, error, atualizarAvatar, atualizarUsuario, recarregar }
 }

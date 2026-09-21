@@ -9,6 +9,7 @@ import {
   UsuariosTableActions,
 } from '@/features/usuarios/components'
 import { useOpcoesUsuario, useUsuarios } from '@/features/usuarios/hooks'
+import { useEntidades } from '@/features/tabelas/hooks'
 import type {
   AtualizarUsuarioInput,
   Usuario,
@@ -20,7 +21,7 @@ const defaultVisibleColumns: UsuarioTableColumn[] = [
   'nome',
   'email',
   'funcao',
-  'departamento',
+  'setor',
   'status',
 ]
 
@@ -40,7 +41,8 @@ export function UsuariosList() {
   const { usuarios, isLoading, error, atualizarUsuario, excluirUsuario, recarregar } =
     useUsuarios()
   // Opções dos dropdowns do modal de edição.
-  const { departamentos, funcoes } = useOpcoesUsuario()
+  const { setores, funcoes, papeis } = useOpcoesUsuario()
+  const { entidades } = useEntidades()
   const [search, setSearch] = useState('')
   const [view, setView] = useState<UsuarioView>('tabela')
   const [visibleColumns, setVisibleColumns] = useState<UsuarioTableColumn[]>(
@@ -75,7 +77,7 @@ export function UsuariosList() {
           usuario.nome,
           usuario.email,
           usuario.funcao,
-          usuario.departamento,
+          usuario.setor,
           usuario.status,
         ].join(' ')
       )
@@ -89,17 +91,20 @@ export function UsuariosList() {
       title="Usuários"
       description="Home / Gestão de Pessoas / Usuários"
       breadcrumbs={[{ label: 'Usuários' }]}
+      fillHeight
     >
-      <div className="flex flex-col gap-4">
+      <div className="flex h-full min-h-0 flex-col gap-4">
         <UsuariosTableActions
           search={search}
           visibleColumns={visibleColumns}
           view={view}
           usuarios={usuarios}
+          setores={setores}
           onSearchChange={setSearch}
           onVisibleColumnsChange={setVisibleColumns}
           onViewChange={setView}
           onImportComplete={recarregar}
+          onGerenteAtribuido={recarregar}
         />
         {error ? (
           <p className="rounded-lg border border-dashed p-6 text-center text-sm text-destructive">
@@ -109,26 +114,36 @@ export function UsuariosList() {
           <p className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
             Carregando usuários…
           </p>
-        ) : view === 'quadro' ? (
-          <UsuariosGrid
-            data={filteredUsuarios}
-            onSelectUsuario={(usuarioId) => navigate(`/usuarios/${usuarioId}`)}
-          />
         ) : (
-          <UsuariosTable
-            data={filteredUsuarios}
-            visibleColumns={visibleColumns}
-            onSelectUsuario={(usuarioId) => navigate(`/usuarios/${usuarioId}`)}
-            onEditarUsuario={setUsuarioEmEdicao}
-            onExcluirUsuario={excluirUsuario}
-          />
+          // flex-1 min-h-0: ocupa a altura restante (abaixo da barra de
+          // busca/filtros) e vira a única região com scroll — sidebar e
+          // cabeçalho ficam fixos. overflow-y-auto cobre a visão em quadro
+          // (que não pagina/rola sozinha); a tabela pagina internamente.
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            {view === 'quadro' ? (
+              <UsuariosGrid
+                data={filteredUsuarios}
+                onSelectUsuario={(usuarioId) => navigate(`/usuarios/${usuarioId}`)}
+              />
+            ) : (
+              <UsuariosTable
+                data={filteredUsuarios}
+                visibleColumns={visibleColumns}
+                onSelectUsuario={(usuarioId) => navigate(`/usuarios/${usuarioId}`)}
+                onEditarUsuario={setUsuarioEmEdicao}
+                onExcluirUsuario={excluirUsuario}
+              />
+            )}
+          </div>
         )}
       </div>
 
       <EditarUsuarioModal
         usuario={usuarioEmEdicao}
-        departamentos={departamentos}
+        entidades={entidades}
+        setores={setores}
         funcoes={funcoes}
+        papeis={papeis}
         isSaving={salvando}
         onClose={() => setUsuarioEmEdicao(null)}
         onSalvar={handleSalvarEdicao}

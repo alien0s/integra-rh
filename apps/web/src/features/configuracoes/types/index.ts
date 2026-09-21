@@ -1,1 +1,1 @@
-export type { ConfiguracoesSection, PerfilFormData } from './ConfiguracoesTypes'
+export type { ConfiguracoesSection } from './ConfiguracoesTypes'

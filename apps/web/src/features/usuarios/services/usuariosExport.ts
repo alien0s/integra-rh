@@ -6,18 +6,18 @@ import type { Usuario } from '@/features/usuarios/types'
 
 /**
  * Geração de arquivos (Excel/PDF) com a lista de usuários.
- * Tabela simples: Nome, E-mail, Função, Departamento e Telefone.
+ * Tabela simples: Nome, E-mail, Função, Setor e Telefone.
  */
 
-const CABECALHO = ['Nome', 'E-mail', 'Função', 'Departamento', 'Telefone']
+const CABECALHO = ['Nome', 'E-mail', 'Função', 'Setor', 'Telefone']
 
-/** Converte os usuários em linhas [nome, email, funcao, depto, telefone]. */
+/** Converte os usuários em linhas [nome, email, funcao, setor, telefone]. */
 function linhas(usuarios: Usuario[]): string[][] {
   return usuarios.map((u) => [
     u.nome,
     u.email,
     u.funcao,
-    u.departamento,
+    u.setor,
     u.telefone ?? '',
   ])
 }
@@ -28,7 +28,7 @@ export function exportarUsuariosExcel(usuarios: Usuario[]) {
     Nome: u.nome,
     'E-mail': u.email,
     Função: u.funcao,
-    Departamento: u.departamento,
+    Setor: u.setor,
     Telefone: u.telefone ?? '',
   }))
 

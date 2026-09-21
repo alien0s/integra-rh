@@ -4,7 +4,6 @@
 --
 -- Modelo (a partir das telas do módulo):
 --   - Cada linha é UMA solicitação (férias ou folga) feita por um usuário.
---   - "Férias Regulares" vs "Férias + Abono" = tipo FERIAS + flag abono.
 --   - Status: PENDENTE (aguardando), APROVADO ou RECUSADO (com justificativa).
 --   - "Solicitado em" = created_at; o período é data_inicio..data_fim.
 --   - O "ciclo"/período aquisitivo de referência é guardado para histórico
@@ -27,29 +26,20 @@ CREATE TABLE IF NOT EXISTS ferias_solicitacoes (
   -- guardado para facilitar listagem/relatórios). Deve ser positivo.
   dias INTEGER NOT NULL,
   CONSTRAINT ferias_dias_positivo CHECK (dias > 0),
-  -- Abono pecuniário (venda de 1/3) — só se aplica a férias.
-  abono BOOLEAN NOT NULL DEFAULT FALSE,
   -- Observações do colaborador para o gestor (opcional).
   observacoes TEXT,
   -- Período aquisitivo de referência (o "ciclo" mostrado no card). Opcional.
   periodo_aquisitivo_inicio DATE,
   periodo_aquisitivo_fim DATE,
-  -- Situação da solicitação. Fluxo em até DUAS etapas:
-  --   PENDENTE → (se requer gestor) APROVADO_GESTOR → APROVADO (RH)
-  --   PENDENTE → APROVADO (quando não precisa do gestor)
-  --   qualquer etapa → RECUSADO
+  -- Situação da solicitação (fluxo single-step nesta migration):
+  --   PENDENTE → APROVADO | RECUSADO
+  -- O fluxo de DUAS etapas (gestor → DP) e o CANCELADO são adicionados em
+  -- 014_ferias_fluxo_aprovacao.sql (ALTER TABLE), não aqui.
   status VARCHAR(20) NOT NULL DEFAULT 'PENDENTE',
   CONSTRAINT ferias_status_valido
-    CHECK (status IN ('PENDENTE', 'APROVADO_GESTOR', 'APROVADO', 'RECUSADO')),
+    CHECK (status IN ('PENDENTE', 'APROVADO', 'RECUSADO')),
 
-  -- Aprovação em DUAS etapas (gestor/líder aprova primeiro, depois o RH).
-  -- Para algumas pessoas exige o gestor; para outras vai direto ao RH.
-  requer_aprovacao_gestor BOOLEAN NOT NULL DEFAULT FALSE,
-  -- 1ª etapa — aprovação do gestor/líder de equipe.
-  aprovado_gestor_por UUID REFERENCES users(id) ON DELETE SET NULL,
-  aprovado_gestor_em TIMESTAMP WITH TIME ZONE,
-
-  -- 2ª etapa (final) — aprovação/decisão do RH. Nome/e-mail via JOIN.
+  -- Aprovação/decisão. Nome/e-mail de quem aprovou via JOIN em users.
   aprovado_por UUID REFERENCES users(id) ON DELETE SET NULL,
   decidido_em TIMESTAMP WITH TIME ZONE,
   -- Confirmação (binário) — ex.: aprovação confirmada/efetivada.
@@ -87,12 +77,8 @@ EXECUTE FUNCTION ferias_set_updated_at();
 COMMENT ON TABLE ferias_solicitacoes IS 'Solicitações de férias/folga e a decisão do gestor.';
 COMMENT ON COLUMN ferias_solicitacoes.tipo IS 'FERIAS ou FOLGA.';
 COMMENT ON COLUMN ferias_solicitacoes.dias IS 'Dias corridos do período (data_fim - data_inicio + 1).';
-COMMENT ON COLUMN ferias_solicitacoes.abono IS 'Abono pecuniário (venda de 1/3) — só férias.';
-COMMENT ON COLUMN ferias_solicitacoes.status IS 'PENDENTE, APROVADO_GESTOR (1ª etapa), APROVADO (final/RH) ou RECUSADO.';
-COMMENT ON COLUMN ferias_solicitacoes.requer_aprovacao_gestor IS 'Se exige aprovação do gestor/líder antes do RH.';
-COMMENT ON COLUMN ferias_solicitacoes.aprovado_gestor_por IS '1ª etapa: gestor/líder que aprovou (FK users).';
-COMMENT ON COLUMN ferias_solicitacoes.aprovado_por IS '2ª etapa (final/RH): quem aprovou (FK users). Nome via JOIN.';
+COMMENT ON COLUMN ferias_solicitacoes.status IS 'PENDENTE, APROVADO ou RECUSADO (fluxo de 2 etapas + CANCELADO em 014).';
 COMMENT ON COLUMN ferias_solicitacoes.motivo_recusa IS 'Justificativa obrigatória quando RECUSADO.';
 COMMENT ON COLUMN ferias_solicitacoes.aprovado_por IS 'Quem aprovou/recusou (FK users). E-mail/nome via JOIN.';
 COMMENT ON COLUMN ferias_solicitacoes.confirmado IS 'Confirmação (binário) da aprovação/efetivação.';
-COMMENT ON COLUMN ferias_solicitacoes.periodo_aquisitivo_inicio IS 'Início do ciclo aquisitivo de referência (histórico).';
+COMMENT ON COLUMN ferias_solicitacoes.periodo_aquisitivo_inicio IS 'Início do ciclo aquisitivo de referência (histórico).

@@ -10,7 +10,7 @@ export interface AuthUser {
   id: string;
   email: string;
   nome: string;
-  departamento?: string;
+  setor?: string;
   funcao?: string;
   avatar?: string;
   /**

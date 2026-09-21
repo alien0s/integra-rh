@@ -3,10 +3,10 @@ import * as XLSX from "xlsx";
 import {
   criarUsuarioImportado,
   getUsuarioIdPorEmail,
-  listDepartamentosParaMatch,
+  listSetoresParaMatch,
   preencherVinculosVazios,
   resolverEntidadePorReferencia,
-} from "./database.js";
+} from "./usuarios.js";
 
 /**
  * Importação de usuários a partir de planilha (CSV/Excel).
@@ -22,14 +22,14 @@ export interface LinhaPlanilha {
   nome: string;
   /** Referência da entidade (código APS de 6 dígitos ou nome). */
   entidade: string | null;
-  /** Nome do departamento (casado por texto com a tabela). */
-  departamento: string | null;
+  /** Nome do setor (casado por texto com a tabela). */
+  setor: string | null;
 }
 
 export interface ResultadoImportacao {
   total: number;
   criados: number;
-  /** Já existiam e tiveram entidade/departamento preenchidos. */
+  /** Já existiam e tiveram entidade/setor preenchidos. */
   atualizados: number;
   /** Já existiam e nada mudou (ignorados). */
   ignorados: number;
@@ -51,7 +51,7 @@ const SINONIMOS = {
     "cod aps",
     "unidade",
   ],
-  departamento: ["departamento", "department", "setor", "depto", "area"],
+  setor: ["departamento", "department", "setor", "depto", "area"],
 } as const;
 
 /** Normaliza um cabeçalho: sem acento, minúsculo, espaços colapsados. */
@@ -106,7 +106,7 @@ export function parsePlanilhaUsuarios(buffer: Buffer): LinhaPlanilha[] {
       email: pegar(SINONIMOS.email).toLowerCase(),
       nome: pegar(SINONIMOS.nome),
       entidade: pegar(SINONIMOS.entidade) || null,
-      departamento: pegar(SINONIMOS.departamento) || null,
+      setor: pegar(SINONIMOS.setor) || null,
     };
   });
 }
@@ -126,19 +126,19 @@ export async function importarUsuarios(
     erros: [],
   };
 
-  // Pré-carrega os departamentos e indexa por nome normalizado (sem acento/
+  // Pré-carrega os setores e indexa por nome normalizado (sem acento/
   // caixa), para casar o texto da planilha com a tabela.
-  const departamentos = await listDepartamentosParaMatch();
-  const indiceDepartamentos = new Map<string, string>();
-  for (const dep of departamentos) {
-    const chave = normalizarChave(dep.nome);
+  const setores = await listSetoresParaMatch();
+  const indiceSetores = new Map<string, string>();
+  for (const s of setores) {
+    const chave = normalizarChave(s.nome);
     // Primeiro registro vence (evita sobrescrever em caso de nomes repetidos).
-    if (!indiceDepartamentos.has(chave)) indiceDepartamentos.set(chave, dep.id);
+    if (!indiceSetores.has(chave)) indiceSetores.set(chave, s.id);
   }
 
-  /** Casa o nome do departamento com a tabela; null se não fizer sentido. */
-  function resolverDepartamento(nome: string): string | null {
-    return indiceDepartamentos.get(normalizarChave(nome)) ?? null;
+  /** Casa o nome do setor com a tabela; null se não fizer sentido. */
+  function resolverSetor(nome: string): string | null {
+    return indiceSetores.get(normalizarChave(nome)) ?? null;
   }
 
   for (let i = 0; i < linhas.length; i++) {
@@ -162,18 +162,16 @@ export async function importarUsuarios(
     const entityId = linha.entidade
       ? await resolverEntidadePorReferencia(linha.entidade)
       : null;
-    const departmentId = linha.departamento
-      ? resolverDepartamento(linha.departamento)
-      : null;
+    const setorId = linha.setor ? resolverSetor(linha.setor) : null;
 
-    // Já existe: completa entidade/departamento se estiverem vazios (não
+    // Já existe: completa entidade/setor se estiverem vazios (não
     // sobrescreve). Assim reimportar preenche quem foi criado sem esses dados.
     const jaExisteId = await getUsuarioIdPorEmail(linha.email);
     if (jaExisteId) {
       try {
         const atualizou = await preencherVinculosVazios(jaExisteId, {
           entityId,
-          departmentId,
+          setorId,
         });
         if (atualizou) resultado.atualizados++;
         else resultado.ignorados++;
@@ -190,7 +188,7 @@ export async function importarUsuarios(
         email: linha.email,
         nome,
         entityId,
-        departmentId,
+        setorId,
       });
       resultado.criados++;
     } catch (error) {

@@ -1,0 +1,1 @@
+export { VrList as VrPage } from '@/pages/vr/VrList'

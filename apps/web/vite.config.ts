@@ -24,6 +24,10 @@ export default defineConfig({
   },
   server: {
     port: 5173,
+    // Libera o Host "integrarh.aceam.org.br" pro dev server (e pro `vite
+    // preview`) — sem isso, o Vite rejeita requisições que chegam com esse
+    // Host (ex.: atrás de um reverse proxy) por segurança (DNS rebinding).
+    allowedHosts: ["integrarh.aceam.org.br"],
     proxy: {
       "/api": {
         target: "http://localhost:3000",

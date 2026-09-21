@@ -16,7 +16,7 @@ export interface AuthUsuario {
   email: string
   nome: string
   avatar?: string
-  departamento?: string
+  setor?: string
   funcao?: string
   papelCodigo?: string
   /**
@@ -33,7 +33,7 @@ interface JwtPayload {
   email: string
   nome: string
   avatar?: string
-  departamento?: string
+  setor?: string
   funcao?: string
   papelCodigo?: string
   personificadoPor?: PersonificadoPor
@@ -80,7 +80,7 @@ export function usuarioDoToken(token: string | null): AuthUsuario | null {
     email: payload.email,
     nome,
     avatar: payload.avatar,
-    departamento: payload.departamento,
+    setor: payload.setor,
     funcao: payload.funcao,
     papelCodigo: payload.papelCodigo,
     personificadoPor: payload.personificadoPor,

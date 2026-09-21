@@ -5,4 +5,4 @@ export {
   PersonificacaoProvider,
   usePersonificacao,
 } from "@/features/auth/context"
-export { RequireAuth, RedirectSeLogado } from "@/features/auth/components"
+export { RequireAuth, RequireNaoColaborador, RequireAdmin, RedirectSeLogado } from "@/features/auth/components"

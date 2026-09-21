@@ -1,5 +1,6 @@
 import { getToken } from '@/lib/auth'
 import type {
+  AtividadeUsuario,
   AtualizarUsuarioInput,
   OpcaoSelecao,
   Usuario,
@@ -9,7 +10,7 @@ import type {
 export interface ResultadoImportacao {
   total: number
   criados: number
-  /** Já existiam e tiveram entidade/departamento preenchidos. */
+  /** Já existiam e tiveram entidade/setor preenchidos. */
   atualizados: number
   /** Já existiam e nada mudou. */
   ignorados: number
@@ -84,6 +85,20 @@ export const usuariosService = {
 
     const json = (await response.json()) as ApiResponse<Usuario>
     return { ...json.data, fotoUrl: resolverFotoUrl(json.data.fotoUrl) }
+  },
+
+  /** Atividades recentes do usuário (ações que ele realizou no sistema). */
+  async getAtividades(id: string): Promise<AtividadeUsuario[]> {
+    const response = await fetch(`${API_URL}/usuarios/${id}/atividades`, {
+      headers: authHeaders(),
+    })
+
+    if (!response.ok) {
+      throw new Error('Falha ao buscar atividades do usuário')
+    }
+
+    const json = (await response.json()) as ApiListResponse<AtividadeUsuario>
+    return json.data
   },
 
   /**
@@ -173,15 +188,15 @@ export const usuariosService = {
   },
 
   /**
-   * Lista os departamentos (opções do dropdown de edição).
+   * Lista os setores (opções do dropdown de edição).
    */
-  async getDepartamentos(): Promise<OpcaoSelecao[]> {
-    const response = await fetch(`${API_URL}/departamentos`, {
+  async getSetores(): Promise<OpcaoSelecao[]> {
+    const response = await fetch(`${API_URL}/setores`, {
       headers: authHeaders(),
     })
 
     if (!response.ok) {
-      throw new Error('Falha ao buscar departamentos')
+      throw new Error('Falha ao buscar setores')
     }
 
     const json = (await response.json()) as ApiListResponse<OpcaoSelecao>
@@ -222,6 +237,31 @@ export const usuariosService = {
         message?: string
       } | null
       throw new Error(erro?.message ?? 'Falha ao atualizar usuário')
+    }
+
+    const json = (await response.json()) as ApiResponse<Usuario>
+    return { ...json.data, fotoUrl: resolverFotoUrl(json.data.fotoUrl) }
+  },
+
+  /**
+   * Atribui alguém como gerente (papel GESTOR) de um setor pelo e-mail.
+   * Cria o usuário (só com email + setor + papel) se ainda não existir.
+   */
+  async atribuirGerente(input: {
+    email: string
+    setorId: string
+  }): Promise<Usuario> {
+    const response = await fetch(`${API_URL}/usuarios/gerentes`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      body: JSON.stringify(input),
+    })
+
+    if (!response.ok) {
+      const erro = (await response.json().catch(() => null)) as {
+        message?: string
+      } | null
+      throw new Error(erro?.message ?? 'Falha ao atribuir gerente')
     }
 
     const json = (await response.json()) as ApiResponse<Usuario>

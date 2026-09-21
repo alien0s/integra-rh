@@ -24,7 +24,7 @@ interface UsuarioPerfilHeaderProps {
 }
 
 /**
- * Cabeçalho do perfil: foto (com upload), nome/função/departamento, badge de
+ * Cabeçalho do perfil: foto (com upload), nome/função/setor, badge de
  * status e ações (Personificar/Editar) à direita.
  */
 export function UsuarioPerfilHeader({
@@ -47,7 +47,7 @@ export function UsuarioPerfilHeader({
         <div className="flex min-w-0 flex-col gap-1">
           <h2 className="text-xl font-semibold leading-tight">{usuario.nome}</h2>
           <p className="text-sm text-muted-foreground">
-            {usuario.funcao} • {usuario.departamento}
+            {usuario.funcao} • {usuario.setor}
           </p>
           <Badge
             variant="outline"

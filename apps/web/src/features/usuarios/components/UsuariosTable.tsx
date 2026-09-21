@@ -1,6 +1,6 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
-import { ChevronDown, Ellipsis, Pencil, Trash2 } from 'lucide-react'
+import { ChevronDown, ChevronLeft, ChevronRight, Ellipsis, Pencil, Trash2 } from 'lucide-react'
 
 import {
   AlertDialog,
@@ -49,6 +49,9 @@ const statusClassName = {
     'border-transparent bg-red-50 text-red-500 hover:bg-red-50',
 }
 
+/** Máximo de linhas exibidas por página. */
+const ITENS_POR_PAGINA = 20
+
 /**
  * Tabela de usuários com colunas controladas pelo menu de ocultar.
  */
@@ -59,7 +62,7 @@ export function UsuariosTable({
   onEditarUsuario,
   onExcluirUsuario,
 }: UsuariosTableProps) {
-  const [selectedDepartamentos, setSelectedDepartamentos] = useState<string[]>(
+  const [selectedSetores, setSelectedSetores] = useState<string[]>(
     []
   )
   const [selectedFuncoes, setSelectedFuncoes] = useState<string[]>([])
@@ -82,9 +85,9 @@ export function UsuariosTable({
     }
   }
 
-  const allDepartamentos = useMemo(
+  const allSetores = useMemo(
     () =>
-      [...new Set(data.map((u) => u.departamento).filter(Boolean))].sort(),
+      [...new Set(data.map((u) => u.setor).filter(Boolean))].sort(),
     [data]
   )
 
@@ -97,19 +100,47 @@ export function UsuariosTable({
     () =>
       data.filter(
         (u) =>
-          (selectedDepartamentos.length === 0 ||
-            selectedDepartamentos.includes(u.departamento)) &&
+          (selectedSetores.length === 0 ||
+            selectedSetores.includes(u.setor)) &&
           (selectedFuncoes.length === 0 || selectedFuncoes.includes(u.funcao))
       ),
-    [data, selectedDepartamentos, selectedFuncoes]
+    [data, selectedSetores, selectedFuncoes]
   )
 
   const hasActiveFilters =
-    selectedDepartamentos.length > 0 || selectedFuncoes.length > 0
+    selectedSetores.length > 0 || selectedFuncoes.length > 0
 
-  function handleDepartamentoToggle(dep: string, checked: boolean) {
-    setSelectedDepartamentos((prev) =>
-      checked ? [...prev, dep] : prev.filter((d) => d !== dep)
+  const [pagina, setPagina] = useState(1)
+
+  // Volta pra página 1 sempre que a base de dados ou os filtros mudam (senão
+  // o usuário pode ficar "preso" numa página que não existe mais depois de
+  // filtrar/buscar).
+  useEffect(() => {
+    setPagina(1)
+  }, [data, selectedSetores, selectedFuncoes])
+
+  const totalPaginas = Math.max(
+    1,
+    Math.ceil(filteredData.length / ITENS_POR_PAGINA),
+  )
+  // Trava dentro do intervalo válido — cobre o caso de a página guardada
+  // ficar maior que o total depois de um filtro reduzir os resultados.
+  const paginaAtual = Math.min(pagina, totalPaginas)
+  const primeiroItem =
+    filteredData.length === 0 ? 0 : (paginaAtual - 1) * ITENS_POR_PAGINA + 1
+  const ultimoItem = Math.min(paginaAtual * ITENS_POR_PAGINA, filteredData.length)
+  const dadosPaginados = useMemo(
+    () =>
+      filteredData.slice(
+        (paginaAtual - 1) * ITENS_POR_PAGINA,
+        paginaAtual * ITENS_POR_PAGINA,
+      ),
+    [filteredData, paginaAtual],
+  )
+
+  function handleSetorToggle(setor: string, checked: boolean) {
+    setSelectedSetores((prev) =>
+      checked ? [...prev, setor] : prev.filter((s) => s !== setor)
     )
   }
 
@@ -126,10 +157,12 @@ export function UsuariosTable({
 
   return (
     <>
-    <Card className="overflow-hidden shadow-none">
-      <CardContent className="p-0">
+    <Card className="flex h-full flex-col overflow-hidden shadow-none">
+      {/* Só esta região rola — cabeçalho (sticky) e paginação (fora daqui,
+          no footer abaixo) ficam sempre visíveis. */}
+      <CardContent className="scrollbar-thin min-h-0 flex-1 overflow-y-auto p-0">
         <Table>
-          <TableHeader>
+          <TableHeader className="sticky top-0 z-10 bg-card">
             <TableRow className="hover:bg-transparent">
               {hasVisibleColumns ? (
                 <>
@@ -175,7 +208,7 @@ export function UsuariosTable({
                       </DropdownMenu>
                     </TableHead>
                   ) : null}
-                  {isColumnVisible('departamento') ? (
+                  {isColumnVisible('setor') ? (
                     <TableHead className="h-11">
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
@@ -184,27 +217,27 @@ export function UsuariosTable({
                             size="sm"
                             className="h-auto gap-1 p-0 font-medium text-foreground hover:bg-transparent focus-visible:ring-0"
                           >
-                            Departamento
-                            {selectedDepartamentos.length > 0 && (
+                            Setor
+                            {selectedSetores.length > 0 && (
                               <span className="flex h-4 w-4 items-center justify-center rounded-full bg-primary text-[10px] font-semibold text-primary-foreground">
-                                {selectedDepartamentos.length}
+                                {selectedSetores.length}
                               </span>
                             )}
                             <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="start" className="w-48">
-                          {allDepartamentos.map((dep) => (
+                          {allSetores.map((setor) => (
                             <DropdownMenuCheckboxItem
-                              key={dep}
-                              checked={selectedDepartamentos.includes(dep)}
+                              key={setor}
+                              checked={selectedSetores.includes(setor)}
                               onCheckedChange={(checked) =>
-                                handleDepartamentoToggle(dep, checked === true)
+                                handleSetorToggle(setor, checked === true)
                               }
                               onSelect={(e) => e.preventDefault()}
                               className="h-9"
                             >
-                              {dep}
+                              {setor}
                             </DropdownMenuCheckboxItem>
                           ))}
                         </DropdownMenuContent>
@@ -229,7 +262,7 @@ export function UsuariosTable({
                 </TableCell>
               </TableRow>
             ) : filteredData.length > 0 ? (
-              filteredData.map((usuario) => (
+              dadosPaginados.map((usuario) => (
                 <TableRow
                   key={usuario.id}
                   tabIndex={onSelectUsuario ? 0 : undefined}
@@ -275,9 +308,9 @@ export function UsuariosTable({
                     </TableCell>
                   ) : null}
 
-                  {isColumnVisible('departamento') ? (
+                  {isColumnVisible('setor') ? (
                     <TableCell className="pr-6 text-sm text-muted-foreground">
-                      {usuario.departamento}
+                      {usuario.setor}
                     </TableCell>
                   ) : null}
 
@@ -342,6 +375,41 @@ export function UsuariosTable({
           </TableBody>
         </Table>
       </CardContent>
+
+      {/* Fora da área de scroll (shrink-0) — fica sempre visível, não rola
+          junto com as linhas. */}
+      {filteredData.length > 0 && (
+        <div className="flex shrink-0 items-center justify-between gap-3 border-t px-4 py-3 text-sm text-muted-foreground">
+          <span>
+            Mostrando {primeiroItem}–{ultimoItem} de {filteredData.length}
+          </span>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1"
+              onClick={() => setPagina((p) => Math.max(1, p - 1))}
+              disabled={paginaAtual <= 1}
+            >
+              <ChevronLeft className="h-4 w-4" />
+              Anterior
+            </Button>
+            <span className="px-1 text-xs">
+              Página {paginaAtual} de {totalPaginas}
+            </span>
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1"
+              onClick={() => setPagina((p) => Math.min(totalPaginas, p + 1))}
+              disabled={paginaAtual >= totalPaginas}
+            >
+              Próxima
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
+      )}
     </Card>
 
     <AlertDialog

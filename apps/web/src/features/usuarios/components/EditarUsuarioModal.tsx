@@ -24,26 +24,36 @@ import type {
   OpcaoSelecao,
   Usuario,
 } from '@/features/usuarios/types'
-import { PAPEIS } from '@/features/usuarios/types'
+import type { Papel } from '@/features/tabelas/types'
 import { mascararCpf, mascararTelefone } from '@/lib/masks'
 
 interface EditarUsuarioModalProps {
   /** Usuário em edição (null quando o modal está fechado). */
   usuario: Usuario | null
   /** Opções dos dropdowns. */
-  departamentos: OpcaoSelecao[]
+  entidades: OpcaoSelecao[]
+  setores: OpcaoSelecao[]
   funcoes: OpcaoSelecao[]
+  papeis: Papel[]
   /** Indica que o salvamento está em andamento. */
   isSaving?: boolean
+  /**
+   * Restringe a edição a CPF/telefone — usado quando o COLABORADOR edita o
+   * próprio perfil (em "Meu perfil"): entidade/setor/função/papel exigem o
+   * RH/DP, então nem aparecem aqui (também não seria aceito pela API nesse
+   * caso — ver PATCH /usuarios/:id).
+   */
+  apenasContato?: boolean
   onClose: () => void
   onSalvar: (input: AtualizarUsuarioInput) => void
 }
 
 /** Estado do formulário de edição. */
 interface FormState {
+  entidadeId: string
   cpf: string
   telefone: string
-  departamentoId: string
+  setorId: string
   funcaoId: string
   papelCodigo: string
 }
@@ -54,21 +64,26 @@ function idPorNome(opcoes: OpcaoSelecao[], nome: string): string {
 }
 
 /**
- * Modal de edição das informações do usuário (cpf, telefone, departamento e
- * função). O botão Salvar só habilita quando há alteração no formulário.
+ * Modal de edição das informações do usuário (entidade, cpf, telefone,
+ * setor e função). O botão Salvar só habilita quando há alteração no
+ * formulário.
  */
 export function EditarUsuarioModal({
   usuario,
-  departamentos,
+  entidades,
+  setores,
   funcoes,
+  papeis,
   isSaving = false,
+  apenasContato = false,
   onClose,
   onSalvar,
 }: EditarUsuarioModalProps) {
   const [form, setForm] = useState<FormState>({
+    entidadeId: '',
     cpf: '',
     telefone: '',
-    departamentoId: '',
+    setorId: '',
     funcaoId: '',
     papelCodigo: '',
   })
@@ -76,13 +91,14 @@ export function EditarUsuarioModal({
   // Valores iniciais (para detectar alterações e habilitar o Salvar).
   const initial = useMemo<FormState>(
     () => ({
+      entidadeId: usuario ? idPorNome(entidades, usuario.entidade ?? '') : '',
       cpf: usuario?.cpf ?? '',
       telefone: usuario?.telefone ?? '',
-      departamentoId: usuario ? idPorNome(departamentos, usuario.departamento) : '',
+      setorId: usuario ? idPorNome(setores, usuario.setor) : '',
       funcaoId: usuario ? idPorNome(funcoes, usuario.funcao) : '',
       papelCodigo: usuario?.papelCodigo ?? '',
     }),
-    [usuario, departamentos, funcoes],
+    [usuario, entidades, setores, funcoes],
   )
 
   // Sincroniza o form quando abre com um novo usuário/opções.
@@ -91,17 +107,19 @@ export function EditarUsuarioModal({
   }, [initial])
 
   const alterado =
+    form.entidadeId !== initial.entidadeId ||
     form.cpf !== initial.cpf ||
     form.telefone !== initial.telefone ||
-    form.departamentoId !== initial.departamentoId ||
+    form.setorId !== initial.setorId ||
     form.funcaoId !== initial.funcaoId ||
     form.papelCodigo !== initial.papelCodigo
 
   function handleSalvar() {
     onSalvar({
+      entidadeId: form.entidadeId || null,
       cpf: form.cpf.trim() || null,
       telefone: form.telefone.trim() || null,
-      departamentoId: form.departamentoId || null,
+      setorId: form.setorId || null,
       funcaoId: form.funcaoId || null,
       roleCodigo: form.papelCodigo || null,
     })
@@ -114,13 +132,38 @@ export function EditarUsuarioModal({
     >
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Editar usuário</DialogTitle>
+          <DialogTitle>{apenasContato ? 'Editar meus dados' : 'Editar usuário'}</DialogTitle>
           <DialogDescription>
-            Atualize os dados de {usuario?.nome}.
+            {apenasContato
+              ? 'Atualize seu CPF e telefone. Os demais dados dependem do RH/DP.'
+              : `Atualize os dados de ${usuario?.nome}.`}
           </DialogDescription>
         </DialogHeader>
 
         <div className="flex flex-col gap-4">
+          {!apenasContato && (
+            <div className="flex flex-col gap-2">
+              <Label>Entidade</Label>
+              <Select
+                value={form.entidadeId}
+                onValueChange={(value) =>
+                  setForm((f) => ({ ...f, entidadeId: value }))
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecione a entidade" />
+                </SelectTrigger>
+                <SelectContent>
+                  {entidades.map((entidade) => (
+                    <SelectItem key={entidade.id} value={entidade.id}>
+                      {entidade.nome}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+
           <div className="flex flex-col gap-2">
             <Label htmlFor="cpf">CPF</Label>
             <Input
@@ -152,68 +195,74 @@ export function EditarUsuarioModal({
             />
           </div>
 
-          <div className="flex flex-col gap-2">
-            <Label>Departamento</Label>
-            <Select
-              value={form.departamentoId}
-              onValueChange={(value) =>
-                setForm((f) => ({ ...f, departamentoId: value }))
-              }
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="Selecione o departamento" />
-              </SelectTrigger>
-              <SelectContent>
-                {departamentos.map((dep) => (
-                  <SelectItem key={dep.id} value={dep.id}>
-                    {dep.nome}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+          {!apenasContato && (
+            <div className="flex flex-col gap-2">
+              <Label>Setor</Label>
+              <Select
+                value={form.setorId}
+                onValueChange={(value) =>
+                  setForm((f) => ({ ...f, setorId: value }))
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecione o setor" />
+                </SelectTrigger>
+                <SelectContent>
+                  {setores.map((setor) => (
+                    <SelectItem key={setor.id} value={setor.id}>
+                      {setor.nome}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
 
-          <div className="flex flex-col gap-2">
-            <Label>Função</Label>
-            <Select
-              value={form.funcaoId}
-              onValueChange={(value) =>
-                setForm((f) => ({ ...f, funcaoId: value }))
-              }
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="Selecione a função" />
-              </SelectTrigger>
-              <SelectContent>
-                {funcoes.map((funcao) => (
-                  <SelectItem key={funcao.id} value={funcao.id}>
-                    {funcao.nome}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+          {!apenasContato && (
+            <div className="flex flex-col gap-2">
+              <Label>Função</Label>
+              <Select
+                value={form.funcaoId}
+                onValueChange={(value) =>
+                  setForm((f) => ({ ...f, funcaoId: value }))
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecione a função" />
+                </SelectTrigger>
+                <SelectContent>
+                  {funcoes.map((funcao) => (
+                    <SelectItem key={funcao.id} value={funcao.id}>
+                      {funcao.nome}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
 
-          <div className="flex flex-col gap-2">
-            <Label>Papel</Label>
-            <Select
-              value={form.papelCodigo}
-              onValueChange={(value) =>
-                setForm((f) => ({ ...f, papelCodigo: value }))
-              }
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="Selecione o papel" />
-              </SelectTrigger>
-              <SelectContent>
-                {PAPEIS.map((papel) => (
-                  <SelectItem key={papel.codigo} value={papel.codigo}>
-                    {papel.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+          {!apenasContato && (
+            <div className="flex flex-col gap-2">
+              <Label>Papel</Label>
+              <Select
+                value={form.papelCodigo}
+                onValueChange={(value) =>
+                  setForm((f) => ({ ...f, papelCodigo: value }))
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecione o papel" />
+                </SelectTrigger>
+                <SelectContent>
+                  {papeis.map((papel) => (
+                    <SelectItem key={papel.codigo} value={papel.codigo}>
+                      {papel.nome}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
         </div>
 
         <DialogFooter>

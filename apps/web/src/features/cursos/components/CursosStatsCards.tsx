@@ -12,21 +12,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { CURSOS_STYLES } from '@/lib/cursos'
-
-export interface StatsCardData {
-  /** Quantidade de pessoas nessa categoria */
-  count: number
-  /** Total geral de colaboradores */
-  total: number
-  /** Variação em relação ao período anterior (ex: +2.8) */
-  trend: number
-}
-
-export interface CursosStatsData {
-  formados: StatsCardData
-  emFormacao: StatsCardData
-  cursosRapidos: StatsCardData
-}
+import type { QualificacoesResumo, StatsCardData } from '../types'
 
 interface StatsBarProps {
   filled: number
@@ -127,7 +113,7 @@ function SingleStatsCard({
 }
 
 interface CursosStatsCardsProps {
-  data: CursosStatsData
+  data: QualificacoesResumo
 }
 
 /**

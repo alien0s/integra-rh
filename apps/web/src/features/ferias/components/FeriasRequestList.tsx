@@ -4,8 +4,14 @@ import { FeriasRequestCard } from './FeriasRequestCard'
 
 interface FeriasRequestListProps {
   solicitacoes: SolicitacaoFerias[]
+  papel?: string
+  usuarioLogadoId?: string
   onAprovar?: (id: string) => void
+  onConfirmar?: (id: string) => void
+  onSugerirAjuste?: (id: string, dataInicioSugerida: string, motivo: string) => void
+  onAceitarAjuste?: (id: string) => Promise<unknown> | void
   onRejeitar?: (id: string, motivo: string) => void
+  onCancelar?: (id: string, motivo?: string | null) => void
 }
 
 /**
@@ -13,8 +19,14 @@ interface FeriasRequestListProps {
  */
 export function FeriasRequestList({
   solicitacoes,
+  papel,
+  usuarioLogadoId,
   onAprovar,
+  onConfirmar,
+  onSugerirAjuste,
+  onAceitarAjuste,
   onRejeitar,
+  onCancelar,
 }: FeriasRequestListProps) {
   if (solicitacoes.length === 0) {
     return (
@@ -30,8 +42,14 @@ export function FeriasRequestList({
         <FeriasRequestCard
           key={solicitacao.id}
           solicitacao={solicitacao}
+          papel={papel}
+          usuarioLogadoId={usuarioLogadoId}
           onAprovar={onAprovar}
+          onConfirmar={onConfirmar}
+          onSugerirAjuste={onSugerirAjuste}
+          onAceitarAjuste={onAceitarAjuste}
           onRejeitar={onRejeitar}
+          onCancelar={onCancelar}
         />
       ))}
     </div>

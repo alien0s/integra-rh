@@ -33,7 +33,7 @@ interface PaginaItem {
 // Páginas navegáveis. Para adicionar subitens depois, basta criar novos
 // CommandGroup (ex.: "Usuários" com atalhos internos da página).
 const paginas: PaginaItem[] = [
-  { label: "Dashboard", path: "/home", icon: Home },
+  { label: "Anúncios", path: "/home", icon: Home },
   { label: "Usuários", path: "/usuarios", icon: UsersRound },
   { label: "Cursos e qualificações", path: "/cursos", icon: GraduationCap },
   { label: "Férias", path: "/ferias", icon: Palmtree },

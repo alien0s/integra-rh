@@ -4,7 +4,6 @@ import {
   useRef,
   useState,
   type ChangeEvent,
-  type DragEvent,
   type FormEvent,
   type ReactNode,
 } from 'react'
@@ -29,13 +28,28 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { toast } from '@/hooks/use-toast'
+import { NIVEL_FORMACAO_LABEL } from '@/lib/cursos'
+import type { FormacaoAcademica, NivelFormacao, NovaFormacaoInput } from '../types'
 
 interface NewGraduacaoModalProps {
   children: ReactNode
+  onCriar: (input: NovaFormacaoInput, arquivo?: File | null) => Promise<FormacaoAcademica>
 }
 
 const currentYear = new Date().getFullYear()
+const NIVEIS = Object.keys(NIVEL_FORMACAO_LABEL) as NivelFormacao[]
+
+/** Rótulo abreviado — só pras abas de nível, pra caber tudo numa linha só. */
+const NIVEL_LABEL_ABREVIADO: Record<NivelFormacao, string> = {
+  TECNICO: 'Técn.',
+  GRADUACAO: 'Grad.',
+  POS_GRADUACAO: 'Pós-grad.',
+  MBA: 'MBA',
+  MESTRADO: 'Mestr.',
+  DOUTORADO: 'Dout.',
+}
 
 function getYearOptions() {
   return Array.from({ length: 60 }, (_, index) => currentYear - index)
@@ -49,12 +63,21 @@ function formatFileSize(size: number) {
   return `${(size / (1024 * 1024)).toFixed(1)} MB`
 }
 
-export function NewGraduacaoModal({ children }: NewGraduacaoModalProps) {
+export function NewGraduacaoModal({ children, onCriar }: NewGraduacaoModalProps) {
   const [open, setOpen] = useState(false)
+  const [enviando, setEnviando] = useState(false)
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
+  const [arrastandoNaTela, setArrastandoNaTela] = useState(false)
+  const [nivel, setNivel] = useState<NivelFormacao | ''>('')
+  const [curso, setCurso] = useState('')
+  const [instituicao, setInstituicao] = useState('')
   const [anoEntrada, setAnoEntrada] = useState('')
   const [anoSaida, setAnoSaida] = useState('')
+  // Campos obrigatórios pra cadastrar (curso, instituição e os dois anos) —
+  // nível tem checagem própria no submit. Enquanto algum estiver vazio, o
+  // botão "Adicionar formação" fica desabilitado.
+  const podeEnviar = Boolean(curso.trim() && instituicao.trim() && anoEntrada && anoSaida)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const years = useMemo(() => getYearOptions(), [])
   const anosSaida = useMemo(() => {
@@ -88,25 +111,91 @@ export function NewGraduacaoModal({ children }: NewGraduacaoModalProps) {
     }
   }, [anoEntrada, anoSaida])
 
-  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  // Com o dialog aberto, soltar um arquivo em qualquer ponto da tela conta
+  // como upload do diploma — não precisa acertar a caixinha.
+  useEffect(() => {
+    if (!open) return
+
+    function handleWindowDragOver(event: globalThis.DragEvent) {
+      if (!event.dataTransfer?.types.includes('Files')) return
+      event.preventDefault()
+      setArrastandoNaTela(true)
+    }
+
+    function handleWindowDragLeave(event: globalThis.DragEvent) {
+      // relatedTarget vazio = saiu da janela de verdade (não é só troca
+      // de elemento interno, que também dispara dragleave).
+      if (!event.relatedTarget) {
+        setArrastandoNaTela(false)
+      }
+    }
+
+    function handleWindowDrop(event: globalThis.DragEvent) {
+      event.preventDefault()
+      setArrastandoNaTela(false)
+      const arquivo = event.dataTransfer?.files?.[0]
+      if (arquivo) setSelectedFile(arquivo)
+    }
+
+    window.addEventListener('dragover', handleWindowDragOver)
+    window.addEventListener('dragleave', handleWindowDragLeave)
+    window.addEventListener('drop', handleWindowDrop)
+
+    return () => {
+      window.removeEventListener('dragover', handleWindowDragOver)
+      window.removeEventListener('dragleave', handleWindowDragLeave)
+      window.removeEventListener('drop', handleWindowDrop)
+    }
+  }, [open])
+
+  function limpar() {
+    setSelectedFile(null)
+    setNivel('')
+    setCurso('')
+    setInstituicao('')
+    setAnoEntrada('')
+    setAnoSaida('')
+  }
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    setOpen(false)
-    toast({
-      title: 'Graduação adicionada',
-      description: 'O curso foi preparado para cadastro. A integração será adicionada depois.',
-      duration: 4000,
-    })
+    if (!nivel || !podeEnviar) return
+
+    setEnviando(true)
+    try {
+      await onCriar(
+        {
+          nivel,
+          curso: curso.trim(),
+          instituicao: instituicao.trim(),
+          anoInicio: Number(anoEntrada),
+          anoFim: anoSaida === 'presente' ? null : Number(anoSaida),
+          situacao: anoSaida === 'presente' ? 'EM_ANDAMENTO' : 'CONCLUIDO',
+          anexoUrl: null,
+        },
+        selectedFile,
+      )
+      setOpen(false)
+      limpar()
+      toast({
+        title: 'Formação enviada',
+        description: 'Cadastrada como pendente — aguarda aprovação do RH.',
+        duration: 4000,
+      })
+    } catch (error) {
+      toast({
+        title: 'Não foi possível cadastrar',
+        description: error instanceof Error ? error.message : 'Tente novamente.',
+        variant: 'destructive',
+        duration: 5000,
+      })
+    } finally {
+      setEnviando(false)
+    }
   }
 
   function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
     setSelectedFile(event.target.files?.[0] ?? null)
-  }
-
-  function handleDrop(event: DragEvent<HTMLDivElement>) {
-    event.preventDefault()
-    if (selectedFile) return
-
-    setSelectedFile(event.dataTransfer.files[0] ?? null)
   }
 
   function handleRemoveFile() {
@@ -133,7 +222,13 @@ export function NewGraduacaoModal({ children }: NewGraduacaoModalProps) {
   }
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog
+      open={open}
+      onOpenChange={(novoEstado) => {
+        if (!novoEstado) limpar()
+        setOpen(novoEstado)
+      }}
+    >
       <DialogTrigger asChild>{children}</DialogTrigger>
       <DialogContent className="sm:max-w-[560px]">
         <DialogHeader>
@@ -142,9 +237,9 @@ export function NewGraduacaoModal({ children }: NewGraduacaoModalProps) {
               <GraduationCap className="h-5 w-5" />
             </div>
             <div className="space-y-1">
-              <DialogTitle>Nova graduação</DialogTitle>
+              <DialogTitle>Nova formação acadêmica</DialogTitle>
               <DialogDescription>
-                Adicione as informações do curso de nível superior.
+                Adicione as informações do curso. Entra como pendente até o RH aprovar.
               </DialogDescription>
             </div>
           </div>
@@ -152,10 +247,29 @@ export function NewGraduacaoModal({ children }: NewGraduacaoModalProps) {
 
         <form onSubmit={handleSubmit} className="grid gap-5">
           <div className="grid gap-2">
+            <Label htmlFor="graduacao-nivel">Nível</Label>
+            <Tabs value={nivel} onValueChange={(v) => setNivel(v as NivelFormacao)}>
+              <TabsList id="graduacao-nivel" className="flex h-auto w-full gap-1">
+                {NIVEIS.map((item) => (
+                  <TabsTrigger
+                    key={item}
+                    value={item}
+                    className="px-1.5 py-1.5 text-sm"
+                  >
+                    {NIVEL_LABEL_ABREVIADO[item]}
+                  </TabsTrigger>
+                ))}
+              </TabsList>
+            </Tabs>
+          </div>
+
+          <div className="grid gap-2">
             <Label htmlFor="graduacao-curso">Curso</Label>
             <Input
               id="graduacao-curso"
               name="curso"
+              value={curso}
+              onChange={(event) => setCurso(event.target.value)}
               placeholder="Ex: Administração de Empresas"
               required
             />
@@ -166,6 +280,8 @@ export function NewGraduacaoModal({ children }: NewGraduacaoModalProps) {
             <Input
               id="graduacao-instituicao"
               name="instituicao"
+              value={instituicao}
+              onChange={(event) => setInstituicao(event.target.value)}
               placeholder="Ex: Universidade de São Paulo"
               required
             />
@@ -233,7 +349,11 @@ export function NewGraduacaoModal({ children }: NewGraduacaoModalProps) {
               <div
                 role="button"
                 tabIndex={0}
-                className="flex min-h-44 cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-muted-foreground/30 bg-background px-6 py-8 text-center outline-none transition-colors hover:bg-muted/30 focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+                className={`flex min-h-24 cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed px-4 py-3 text-center outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 ${
+                  arrastandoNaTela
+                    ? 'border-ring bg-muted/40'
+                    : 'border-muted-foreground/30 bg-background hover:bg-muted/30'
+                }`}
                 onClick={() => fileInputRef.current?.click()}
                 onKeyDown={(event) => {
                   if (event.key === 'Enter' || event.key === ' ') {
@@ -241,23 +361,14 @@ export function NewGraduacaoModal({ children }: NewGraduacaoModalProps) {
                     fileInputRef.current?.click()
                   }
                 }}
-                onDragOver={(event) => event.preventDefault()}
-                onDrop={handleDrop}
               >
-                <div className="mb-3 flex h-11 w-11 items-center justify-center rounded-full border bg-background text-muted-foreground">
-                  <Upload className="h-5 w-5" />
-                </div>
-                <p className="font-semibold">Upload do diploma</p>
-                <p className="mt-1 text-sm text-muted-foreground">
-                  Anexe um PDF ou imagem do documento
+                <Upload className="mb-1.5 h-4 w-4 text-muted-foreground" />
+                <p className="text-sm font-medium">
+                  {arrastandoNaTela
+                    ? 'Solte o arquivo aqui'
+                    : 'Arraste o diploma aqui ou clique para selecionar'}
                 </p>
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="mt-4"
-                >
-                  Selecionar arquivo
-                </Button>
+                <p className="mt-0.5 text-xs text-muted-foreground">PDF ou imagem</p>
               </div>
             )}
 
@@ -322,7 +433,9 @@ export function NewGraduacaoModal({ children }: NewGraduacaoModalProps) {
             <Button type="button" variant="outline" onClick={() => setOpen(false)}>
               Cancelar
             </Button>
-            <Button type="submit">Adicionar graduação</Button>
+            <Button type="submit" disabled={enviando || !podeEnviar}>
+              {enviando ? 'Enviando…' : 'Adicionar formação'}
+            </Button>
           </DialogFooter>
         </form>
       </DialogContent>

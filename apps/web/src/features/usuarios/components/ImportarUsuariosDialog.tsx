@@ -91,7 +91,7 @@ export function ImportarUsuariosDialog({
         <DialogHeader>
           <DialogTitle>Importar usuários</DialogTitle>
           <DialogDescription>
-            Lê e-mail, nome, entidade e departamento de uma planilha e cria os
+            Lê e-mail, nome, entidade e setor de uma planilha e cria os
             usuários novos.
           </DialogDescription>
         </DialogHeader>

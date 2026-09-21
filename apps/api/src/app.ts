@@ -7,13 +7,18 @@ import scalarApiReference from "@scalar/fastify-api-reference";
 import Fastify from "fastify";
 
 import { checkDatabaseConnection } from "./lib/database.js";
+import { iniciarJobsComunicacao } from "./lib/comunicacao.cron.js";
 import { ensureBucket } from "./lib/storage.js";
 import { authPlugin } from "./plugins/auth.js";
 import { getApiConfig } from "./plugins/env.js";
 import { microsoftOAuthPlugin } from "./plugins/microsoft-oauth.js";
 import { authRoutes } from "./routes/auth.routes.js";
+import { comunicacaoRoutes } from "./routes/comunicacao.routes.js";
+import { feriadosRoutes } from "./routes/feriados.routes.js";
 import { feriasRoutes } from "./routes/ferias.routes.js";
+import { vrRoutes} from "./routes/vr.routes.js";
 import { notificacoesRoutes } from "./routes/notificacoes.routes.js";
+import { qualificacoesRoutes } from "./routes/qualificacoes.routes.js";
 import { tabelasRoutes } from "./routes/tabelas.routes.js";
 import { uploadsRoutes } from "./routes/uploads.routes.js";
 import { usuariosRoutes } from "./routes/usuarios.routes.js";
@@ -66,9 +71,17 @@ export function buildApp() {
           description: "Cadastro de usuários, foto de perfil e listas de apoio para os formulários."
         },
         { name: "Tabelas — Entidades", description: "CRUD de empresas/organizações do ERP." },
-        { name: "Tabelas — Departamentos", description: "CRUD de departamentos/setores." },
+        { name: "Tabelas — Setores", description: "CRUD de setores." },
         { name: "Tabelas — Funções", description: "CRUD de funções/cargos." },
-        { name: "Tabelas — Papéis", description: "CRUD de papéis/perfis de acesso." }
+        { name: "Tabelas — Papéis", description: "CRUD de papéis/perfis de acesso." },
+        {
+          name: "Cursos e Qualificações",
+          description: "Formação acadêmica, cursos/workshops/certificações e idiomas do colaborador, com aprovação do RH."
+        },
+        {
+          name: "Comunicação",
+          description: "Avisos e campanhas internas, com fluxo de aprovação do RH."
+        }
       ]
     }
   });
@@ -138,8 +151,14 @@ export function buildApp() {
   app.register(usuariosRoutes);
   app.register(tabelasRoutes);
   app.register(uploadsRoutes);
+  app.register(vrRoutes);
   app.register(feriasRoutes);
+  app.register(feriadosRoutes);
   app.register(notificacoesRoutes);
+  app.register(qualificacoesRoutes);
+  app.register(comunicacaoRoutes);
+
+  iniciarJobsComunicacao();
 
   return app;
 }

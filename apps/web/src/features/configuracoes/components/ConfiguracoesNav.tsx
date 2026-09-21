@@ -1,5 +1,5 @@
 import type { LucideIcon } from 'lucide-react'
-import { Bell, Monitor, Palette, Palmtree, User, UserCog } from 'lucide-react'
+import { Bell, Monitor, Palette, Palmtree, UserCog } from 'lucide-react'
 
 import { cn } from '@/lib/utils'
 
@@ -11,7 +11,6 @@ interface ConfiguracoesNavProps {
 }
 
 const items: { id: ConfiguracoesSection; label: string; icon: LucideIcon }[] = [
-  { id: 'perfil', label: 'Perfil', icon: User },
   { id: 'conta', label: 'Conta', icon: UserCog },
   { id: 'aparencia', label: 'Aparência', icon: Palette },
   { id: 'ferias', label: 'Férias', icon: Palmtree },

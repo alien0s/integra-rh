@@ -1,4 +1,4 @@
 export { useEntidades } from './useEntidades'
-export { useDepartamentos } from './useDepartamentos'
+export { useSetores } from './useSetores'
 export { useFuncoes } from './useFuncoes'
 export { usePapeis } from './usePapeis'

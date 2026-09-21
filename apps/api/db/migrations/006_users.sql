@@ -1,7 +1,7 @@
 -- 006_users.sql
 -- Tabela central de usuários do ERP.
 -- Login: LDAP/AD (principal), Microsoft OAuth (SSO) ou senha local (password_hash).
--- Papel de acesso ÚNICO via role_id (FK roles). Vínculos org. (entidade/depto/
+-- Papel de acesso ÚNICO via role_id (FK roles). Vínculos org. (entidade/setor/
 -- função) e dados de RH são preenchidos pelo RH/legado depois, logo nullable.
 
 CREATE TABLE IF NOT EXISTS users (
@@ -9,7 +9,7 @@ CREATE TABLE IF NOT EXISTS users (
 
   -- Vínculos organizacionais / acesso (preenchidos após o 1º acesso).
   entity_id UUID REFERENCES entities(id) ON DELETE CASCADE,
-  department_id UUID REFERENCES departments(id) ON DELETE RESTRICT,
+  setor_id UUID REFERENCES setor(id) ON DELETE RESTRICT,
   function_id UUID REFERENCES functions(id) ON DELETE RESTRICT,
   role_id UUID REFERENCES roles(id) ON DELETE SET NULL,
 
@@ -60,9 +60,31 @@ CREATE TABLE IF NOT EXISTS users (
   updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
 );
 
+-- Código de matrícula do APS + código da entidade combinados (ex.:
+-- "12345-164122"). Preenchido a partir do banco legado (SQL Server) no 1º
+-- acesso do usuário — ver inserirUsuarioComLegado() em lib/database.ts e
+-- buscarFuncionarioLegado() em lib/mssql.ts.
+alter table users
+  add codigo_aps_entidade VARCHAR(20);
+  
+-- Código de matrícula do funcionário no APS (enrollment_code), separado do
+-- código combinado acima. VARCHAR (não INTEGER): é um identificador, não uma
+-- quantidade, e preserva zero à esquerda se algum dia existir. Mesmo padrão
+-- dos demais códigos do legado nesta tabela (cpf, pis, numero_banco, etc.).
+alter table users
+  add codigo_aps VARCHAR(10);
+
+-- Tipo de vínculo trabalhista (CLT): regras de férias/benefícios diferem para
+-- aprendiz e estagiário. Só 3 valores fixos e conhecidos em código — mesmo
+-- padrão do status em ferias_solicitacoes (008_ferias.sql), sem tabela à
+-- parte (não tem CRUD próprio nem atributo extra que justifique catálogo).
+alter table users
+  add tipo_funcionario VARCHAR(20) NOT NULL DEFAULT 'COLABORADOR'
+    CHECK (tipo_funcionario IN ('COLABORADOR', 'APRENDIZ/ESTAGIÁRIO'));
+
 -- Índices
 CREATE INDEX idx_users_entity_id ON users(entity_id);
-CREATE INDEX idx_users_department_id ON users(department_id);
+CREATE INDEX idx_users_setor_id ON users(setor_id);
 CREATE INDEX idx_users_function_id ON users(function_id);
 CREATE INDEX idx_users_role_id ON users(role_id);
 CREATE INDEX idx_users_estado_civil_id ON users(estado_civil_id);
@@ -80,3 +102,6 @@ COMMENT ON COLUMN users.estado IS 'UF (sigla do estado, 2 letras).';
 COMMENT ON COLUMN users.pis IS 'PIS/PASEP — 11 dígitos, sem pontuação.';
 COMMENT ON COLUMN users.numero_banco IS 'Código do banco (3 dígitos).';
 COMMENT ON COLUMN users.avatar_url IS 'Foto (Microsoft Graph, upload local ou chave do storage).';
+COMMENT ON COLUMN users.codigo_aps_entidade IS 'Código APS (enrollment_code) + código da entidade (entity_code) combinados, ex.: "12345-164122". Vem do legado no 1º acesso.';
+COMMENT ON COLUMN users.codigo_aps IS 'Código de matrícula do funcionário no APS (enrollment_code), isolado. Vem do legado no 1º acesso.';
+COMMENT ON COLUMN users.tipo_funcionario IS 'Tipo de vínculo trabalhista (CLT): COLABORADOR (padrão) ou APRENDIZ/ESTAGIÁRIO. Afeta regras de férias/benefícios.';

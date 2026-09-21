@@ -29,7 +29,7 @@ import {
 import { toast } from '@/hooks/use-toast'
 
 /** Tipo de campo de uma coluna editável da tabela. */
-export type RegistroColumnType = 'text' | 'number' | 'select'
+export type RegistroColumnType = 'text' | 'number' | 'select' | 'date'
 
 export interface RegistroColumn<TDraft extends Record<string, string>> {
   /** Chave do campo no rascunho de edição da linha. */
@@ -60,14 +60,14 @@ interface RegistrosCardProps<
   paraRascunho: (registro: TRow) => TDraft
   /** Como exibir uma coluna em modo leitura (sobrescreve o valor cru). */
   exibir?: (registro: TRow, coluna: RegistroColumn<TDraft>) => ReactNode
-  /** Rótulo do registro usado nas mensagens (ex.: "o departamento"). */
+  /** Rótulo do registro usado nas mensagens (ex.: "o setor"). */
   rotuloRegistro: string
   /** Nome exibido na confirmação de exclusão (ex.: nome da linha). */
   nomeExibicao: (registro: TRow) => string
   /**
    * Texto extra anexado à confirmação de exclusão, para avisar de efeitos em
-   * cascata (ex.: excluir uma entidade também apaga seus departamentos,
-   * funções e usuários vinculados).
+   * cascata (ex.: excluir uma entidade também apaga suas funções e
+   * usuários vinculados).
    */
   avisoExclusao?: string
   onCriar: (rascunho: TDraft) => Promise<unknown>
@@ -81,7 +81,7 @@ const NOVO = '__novo__'
  * Card com uma tabela de registros totalmente editável in-line: não há modal
  * ou dialog de edição — ao clicar em editar (ou em "Novo"), a própria linha
  * da tabela vira um formulário, com os botões de salvar/cancelar substituindo
- * as ações. Usado pela tela Tabelas para manter entidades, departamentos,
+ * as ações. Usado pela tela Tabelas para manter entidades, setores,
  * funções e papéis.
  */
 export function RegistrosCard<
@@ -210,7 +210,13 @@ export function RegistrosCard<
     return (
       <Input
         className="h-8"
-        type={coluna.type === 'number' ? 'number' : 'text'}
+        type={
+          coluna.type === 'number'
+            ? 'number'
+            : coluna.type === 'date'
+              ? 'date'
+              : 'text'
+        }
         value={valor}
         placeholder={coluna.placeholder}
         onChange={(event) => {

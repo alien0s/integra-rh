@@ -6,13 +6,22 @@ import { tabelasService } from '@/features/tabelas/services'
 /**
  * Hook que busca e mantém a lista de entidades (empresas/organizações) e
  * expõe as operações de criar/atualizar/excluir usadas pela tela Tabelas.
+ *
+ * `enabled=false` pula a busca — usado quando o editor não tem o dropdown
+ * de entidade na tela (ex.: COLABORADOR editando o próprio perfil, restrito
+ * a cpf/telefone) e a API bloquearia essa lista pra esse papel mesmo.
  */
-export function useEntidades() {
+export function useEntidades(enabled = true) {
   const [entidades, setEntidades] = useState<Entidade[]>([])
-  const [isLoading, setIsLoading] = useState(true)
+  const [isLoading, setIsLoading] = useState(enabled)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
+    if (!enabled) {
+      setIsLoading(false)
+      return
+    }
+
     let ativo = true
 
     async function carregar() {
@@ -33,7 +42,7 @@ export function useEntidades() {
     return () => {
       ativo = false
     }
-  }, [])
+  }, [enabled])
 
   async function criarEntidade(input: EntidadeInput) {
     const criada = await tabelasService.criarEntidade(input)

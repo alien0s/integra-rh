@@ -1,18 +1,21 @@
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 
+import { bloquearColaborador } from "../plugins/auth.js";
 import {
+  atribuirGerente,
   atualizarUsuario,
   excluirUsuario,
   getUsuarioAvatarKey,
   getUsuarioPorId,
-  listDepartamentos,
   listFuncoes,
+  listSetores,
   listUsuarios,
   type AtualizarUsuarioInput,
   type OpcaoSelecao,
   type UsuarioDetalhado,
-} from "../lib/database.js";
+} from "../lib/usuarios.js";
 import { getObjectStream } from "../lib/storage.js";
+import { listAtividadesUsuario, type AtividadeUsuarioDTO } from "../lib/notificacoes.js";
 import {
   importarUsuarios,
   parsePlanilhaUsuarios,
@@ -22,9 +25,35 @@ import type { ApiListResponse, ApiResponse } from "../types/api.js";
 
 /**
  * Rotas de usuários — leem da tabela `users` com os JOINs de
- * departamento, função e gestor. Protegidas por JWT (em dev, o
+ * setor, função e gestor. Protegidas por JWT (em dev, o
  * decorator `authenticate` libera quando AUTH_ENABLED=false).
+ *
+ * COLABORADOR só vê os próprios dados — todo o CRUD de usuários (listar,
+ * ver perfil de outro, editar, excluir, importar planilha, atribuir gerente)
+ * é bloqueado pra esse papel via `bloquearColaborador` (403). Isso espelha o
+ * bloqueio no front (sidebar não mostra "Usuários" + guarda de rota em
+ * /usuarios), mas o de verdade é este aqui — o front é só UX.
  */
+/**
+ * Bloqueia COLABORADOR de ver o perfil de QUALQUER OUTRA pessoa — mas libera
+ * o próprio (usuarioId === request.user.id). Necessário porque o próprio
+ * "Meu perfil" (NavUser) e o hook do usuário logado (avatar/nome na sidebar)
+ * usam esta mesma rota — um bloqueio geral quebraria isso pra todo mundo.
+ */
+async function bloquearColaboradorForaDoProprioPerfil(
+  request: FastifyRequest<{ Params: { usuarioId: string } }>,
+  reply: FastifyReply,
+) {
+  if (
+    request.user.papelCodigo === "COLABORADOR" &&
+    request.params.usuarioId !== request.user.id
+  ) {
+    await reply
+      .code(403)
+      .send({ message: "Sem permissão para acessar este recurso." });
+  }
+}
+
 export async function usuariosRoutes(app: FastifyInstance) {
   /**
    * GET /usuarios
@@ -33,7 +62,7 @@ export async function usuariosRoutes(app: FastifyInstance) {
   app.get<{ Reply: ApiListResponse<UsuarioDetalhado> }>(
     "/usuarios",
     {
-      onRequest: [app.authenticate],
+      onRequest: [app.authenticate, bloquearColaborador],
       schema: { tags: ["Usuários"], summary: "Lista todos os usuários" },
     },
     async () => {
@@ -52,7 +81,7 @@ export async function usuariosRoutes(app: FastifyInstance) {
   }>(
     "/usuarios/:usuarioId",
     {
-      onRequest: [app.authenticate],
+      onRequest: [app.authenticate, bloquearColaboradorForaDoProprioPerfil],
       schema: { tags: ["Usuários"], summary: "Busca um usuário pelo id" },
     },
     async (request, reply) => {
@@ -63,6 +92,27 @@ export async function usuariosRoutes(app: FastifyInstance) {
       }
 
       return { data: usuario };
+    },
+  );
+
+  /**
+   * GET /usuarios/:usuarioId/atividades
+   * Atividades recentes do usuário: ações que ele realizou no sistema (não
+   * notificações que recebeu) — ver `listAtividadesUsuario`. Mesma
+   * permissão do perfil: COLABORADOR só vê a própria.
+   */
+  app.get<{
+    Params: { usuarioId: string };
+    Reply: ApiListResponse<AtividadeUsuarioDTO>;
+  }>(
+    "/usuarios/:usuarioId/atividades",
+    {
+      onRequest: [app.authenticate, bloquearColaboradorForaDoProprioPerfil],
+      schema: { tags: ["Usuários"], summary: "Lista as atividades recentes do usuário" },
+    },
+    async (request) => {
+      const atividades = await listAtividadesUsuario(request.params.usuarioId);
+      return { data: atividades, total: atividades.length };
     },
   );
 
@@ -104,7 +154,7 @@ export async function usuariosRoutes(app: FastifyInstance) {
 
   /**
    * PATCH /usuarios/:usuarioId
-   * Atualiza os campos editáveis (cpf, telefone, departamento, função).
+   * Atualiza os campos editáveis (cpf, telefone, setor, função).
    */
   app.patch<{
     Params: { usuarioId: string };
@@ -113,18 +163,23 @@ export async function usuariosRoutes(app: FastifyInstance) {
   }>(
     "/usuarios/:usuarioId",
     {
-      onRequest: [app.authenticate],
+      onRequest: [app.authenticate, bloquearColaborador],
       schema: {
         tags: ["Usuários"],
-        summary: "Atualiza cpf, telefone, departamento, função ou papel",
+        summary: "Atualiza cpf, telefone, setor, função, papel ou tipo de vínculo",
         body: {
           type: "object",
           properties: {
             cpf: { type: ["string", "null"] },
             telefone: { type: ["string", "null"] },
-            departamentoId: { type: ["string", "null"] },
+            setorId: { type: ["string", "null"] },
+            entidadeId: { type: ["string", "null"] },
             funcaoId: { type: ["string", "null"] },
             roleCodigo: { type: ["string", "null"] },
+            tipoFuncionario: {
+              type: "string",
+              enum: ["COLABORADOR", "APRENDIZ/ESTAGIÁRIO"],
+            },
           },
           additionalProperties: false,
         },
@@ -163,7 +218,7 @@ export async function usuariosRoutes(app: FastifyInstance) {
   app.post<{ Reply: ApiResponse<ResultadoImportacao> | { message: string } }>(
     "/usuarios/importar",
     {
-      onRequest: [app.authenticate],
+      onRequest: [app.authenticate, bloquearColaborador],
       schema: {
         tags: ["Usuários"],
         summary: "Importa usuários de CSV/Excel (arquivo ou URL)",
@@ -244,7 +299,7 @@ export async function usuariosRoutes(app: FastifyInstance) {
     Reply: { message: string };
   }>(
     "/usuarios/:usuarioId",
-    { onRequest: [app.authenticate] },
+    { onRequest: [app.authenticate, bloquearColaborador] },
     async (request, reply) => {
       const excluido = await excluirUsuario(request.params.usuarioId);
       if (!excluido) {
@@ -255,20 +310,71 @@ export async function usuariosRoutes(app: FastifyInstance) {
   );
 
   /**
-   * GET /departamentos — opções para o dropdown de edição.
+   * POST /usuarios/gerentes — atribui alguém como gerente (papel GESTOR) de
+   * um setor pelo e-mail. Cria o usuário (só com email + setor + papel) se
+   * ainda não existir; os demais dados vêm do APS no 1º login dessa pessoa.
+   * Existe para não depender só da função do legado (nem sempre confiável).
+   */
+  app.post<{
+    Body: { email: string; setorId: string };
+    Reply: ApiResponse<UsuarioDetalhado> | { message: string };
+  }>(
+    "/usuarios/gerentes",
+    {
+      onRequest: [app.authenticate, bloquearColaborador],
+      schema: {
+        tags: ["Usuários"],
+        summary: "Atribui um gerente (papel GESTOR) a um setor",
+        body: {
+          type: "object",
+          required: ["email", "setorId"],
+          properties: {
+            email: { type: "string", format: "email" },
+            setorId: { type: "string", minLength: 1 },
+          },
+          additionalProperties: false,
+        },
+      },
+    },
+    async (request, reply) => {
+      const email = request.body.email.trim().toLowerCase();
+      if (!email.endsWith("@adventistas.org")) {
+        return reply
+          .code(400)
+          .send({ message: "Use um e-mail corporativo (@adventistas.org)." });
+      }
+
+      try {
+        const usuario = await atribuirGerente({
+          email,
+          setorId: request.body.setorId,
+          criadoPorUserId: request.user.id,
+        });
+        return { data: usuario };
+      } catch (error) {
+        if ((error as { code?: string }).code === "23503") {
+          return reply.code(404).send({ message: "Setor não encontrado." });
+        }
+        throw error;
+      }
+    },
+  );
+
+  /**
+   * GET /setores — opções para o dropdown de edição.
    */
   app.get<{ Reply: ApiListResponse<OpcaoSelecao> }>(
-    "/departamentos",
+    "/setores",
     {
       onRequest: [app.authenticate],
       schema: {
         tags: ["Usuários"],
-        summary: "Opções de departamento para o formulário de usuário",
+        summary: "Opções de setor para o formulário de usuário",
       },
     },
     async () => {
-      const departamentos = await listDepartamentos();
-      return { data: departamentos, total: departamentos.length };
+      const setores = await listSetores();
+      return { data: setores, total: setores.length };
     },
   );
 

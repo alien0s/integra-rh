@@ -41,7 +41,7 @@ export function NavUser() {
   const { theme, setTheme } = useTheme()
   const navigate = useNavigate()
   const { sair: encerrarSessao } = useAuth()
-  const { ativo: personificando, atorOriginal, encerrar } = usePersonificacao()
+  const { ativo: personificando, encerrar } = usePersonificacao()
   const { authUser, usuario: perfil } = useUsuarioLogado()
 
   if (!authUser) return null
@@ -62,10 +62,9 @@ export function NavUser() {
   }
 
   async function voltarAoMeuPerfil() {
-    const meuId = atorOriginal?.id
     try {
       await encerrar()
-      navigate(meuId ? `/usuarios/${meuId}` : "/home")
+      navigate("/meu-perfil")
     } catch {
       // Erro (ex.: falha de rede) fica disponível em usePersonificacao().erro.
     }
@@ -172,7 +171,7 @@ export function NavUser() {
 
             <DropdownMenuGroup>
               <DropdownMenuItem asChild>
-                <Link to={`/usuarios/${usuario.id}`}>
+                <Link to="/meu-perfil">
                   <UserRound />
                   Meu perfil
                 </Link>

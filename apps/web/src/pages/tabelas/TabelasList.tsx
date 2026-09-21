@@ -1,21 +1,21 @@
 import { AppLayout } from '@/features/app/components/AppLayout'
 import { RegistrosCard } from '@/features/tabelas/components'
 import {
-  useDepartamentos,
   useEntidades,
   useFuncoes,
   usePapeis,
+  useSetores,
 } from '@/features/tabelas/hooks'
 import {
   GRUPOS_ENTIDADE,
-  type Departamento,
-  type DepartamentoForm,
   type Entidade,
   type EntidadeForm,
   type Funcao,
   type FuncaoForm,
   type Papel,
   type PapelForm,
+  type Setor,
+  type SetorForm,
 } from '@/features/tabelas/types'
 
 /** Opção "sem grupo" no dropdown (o Select não aceita value vazio). */
@@ -29,13 +29,13 @@ const OPCOES_GRUPO = [
 
 /**
  * Tela administrativa de manutenção das tabelas de apoio do ERP: entidades,
- * departamentos, funções e papéis. Cada card é uma tabela totalmente
+ * setores, funções e papéis. Cada card é uma tabela totalmente
  * editável in-line — sem modal ou dialog, a própria linha vira formulário
  * ao clicar em editar (ou em "Novo").
  */
 export function TabelasList() {
   const entidadesState = useEntidades()
-  const departamentosState = useDepartamentos()
+  const setoresState = useSetores()
   const funcoesState = useFuncoes()
   const papeisState = usePapeis()
 
@@ -86,7 +86,7 @@ export function TabelasList() {
           }}
           rotuloRegistro="a entidade"
           nomeExibicao={(entidade) => entidade.nome}
-          avisoExclusao="Atenção: isso também apaga em cascata os departamentos, funções e usuários vinculados a esta entidade."
+          avisoExclusao="Atenção: isso também apaga em cascata as funções e usuários vinculados a esta entidade."
           onCriar={(rascunho) =>
             entidadesState.criarEntidade({
               nome: rascunho.nome.trim(),
@@ -142,40 +142,33 @@ export function TabelasList() {
           onExcluir={papeisState.excluirPapel}
         />
 
-        <RegistrosCard<Departamento, DepartamentoForm>
-          titulo="Departamentos"
+        <RegistrosCard<Setor, SetorForm>
+          titulo="Setores"
           descricao="Setores da empresa, usados no cadastro de usuários."
           colunas={[
             { key: 'nome', label: 'Nome', type: 'text', required: true },
-            { key: 'descricao', label: 'Descrição', type: 'text' },
           ]}
-          registros={departamentosState.departamentos}
-          isLoading={departamentosState.isLoading}
-          error={departamentosState.error}
-          rascunhoVazio={{ nome: '', descricao: '' }}
-          paraRascunho={(departamento) => ({
-            nome: departamento.nome,
-            descricao: departamento.descricao ?? '',
+          registros={setoresState.setores}
+          isLoading={setoresState.isLoading}
+          error={setoresState.error}
+          rascunhoVazio={{ nome: '' }}
+          paraRascunho={(setor) => ({
+            nome: setor.nome,
           })}
-          exibir={(departamento, coluna) => {
-            if (coluna.key === 'descricao') return departamento.descricao || '—'
-            return departamento.nome
-          }}
-          rotuloRegistro="o departamento"
-          nomeExibicao={(departamento) => departamento.nome}
+          exibir={(setor) => setor.nome}
+          rotuloRegistro="o setor"
+          nomeExibicao={(setor) => setor.nome}
           onCriar={(rascunho) =>
-            departamentosState.criarDepartamento({
+            setoresState.criarSetor({
               nome: rascunho.nome.trim(),
-              descricao: rascunho.descricao.trim() || null,
             })
           }
           onAtualizar={(id, rascunho) =>
-            departamentosState.atualizarDepartamento(id, {
+            setoresState.atualizarSetor(id, {
               nome: rascunho.nome.trim(),
-              descricao: rascunho.descricao.trim() || null,
             })
           }
-          onExcluir={departamentosState.excluirDepartamento}
+          onExcluir={setoresState.excluirSetor}
         />
 
         <RegistrosCard<Funcao, FuncaoForm>

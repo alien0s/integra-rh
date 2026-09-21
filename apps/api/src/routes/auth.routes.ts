@@ -10,10 +10,11 @@ import {
   findOrCreateUsuarioLocal,
   getUsuarioAuthPorEmail,
   getUsuarioPorId,
+  preencherDadosLegadoSeVazio,
   updateUserAvatar,
   type AppUser,
   type UsuarioDetalhado,
-} from "../lib/database.js";
+} from "../lib/usuarios.js";
 import {
   PAPEIS_QUE_PODEM_PERSONIFICAR,
   type AuthTokenResponse,
@@ -39,7 +40,7 @@ function paraAuthUser(user: AppUser): AuthUser {
     id: user.id,
     email: user.email,
     nome: user.nome,
-    departamento: user.departamento ?? undefined,
+    setor: user.setor ?? undefined,
     funcao: user.funcao ?? undefined,
     avatar: user.avatarUrl ?? undefined,
     papelCodigo: user.papelCodigo ?? undefined,
@@ -52,7 +53,7 @@ function paraAuthUserDeDetalhado(usuario: UsuarioDetalhado): AuthUser {
     id: usuario.id,
     email: usuario.email,
     nome: usuario.nome,
-    departamento: usuario.departamento || undefined,
+    setor: usuario.setor || undefined,
     funcao: usuario.funcao || undefined,
     avatar: usuario.fotoUrl || undefined,
     papelCodigo: usuario.papelCodigo ?? undefined,
@@ -205,6 +206,7 @@ export async function authRoutes(app: FastifyInstance) {
 
       // Atualiza o last_login_at (regrava o mesmo hash).
       await definirSenhaUsuario(usuario.id, usuario.passwordHash);
+      await preencherDadosLegadoSeVazio(usuario.id, email);
 
       const authUser = paraAuthUser(usuario);
       return { token: signAuthToken(authUser), user: authUser };
@@ -285,7 +287,7 @@ export async function authRoutes(app: FastifyInstance) {
 
   /**
    * Atualização do próprio perfil (self-service): apenas cpf e telefone.
-   * Não altera departamento/função/papéis (isso é da tela de Usuários / RH).
+   * Não altera setor/função/papéis (isso é da tela de Usuários / RH).
    */
   app.patch<{
     Body: UpdateMeuPerfilBody;

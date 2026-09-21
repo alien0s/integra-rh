@@ -1,18 +1,18 @@
 import { getToken } from '@/lib/auth'
 import type {
-  Departamento,
-  DepartamentoInput,
   Entidade,
   EntidadeInput,
   Funcao,
   FuncaoInput,
   Papel,
   PapelInput,
+  Setor,
+  SetorInput,
 } from '@/features/tabelas/types'
 
 /**
  * Service de Tabelas — chamadas HTTP puras à API para o CRUD das tabelas de
- * apoio (entidades, departamentos, funções, papéis) usadas pela tela
+ * apoio (entidades, setores, funções, papéis) usadas pela tela
  * administrativa /tabelas.
  */
 
@@ -94,7 +94,7 @@ function criarClienteCrud<T, TInput>(recurso: string) {
 }
 
 const entidadesCrud = criarClienteCrud<Entidade, EntidadeInput>('entidades')
-const departamentosCrud = criarClienteCrud<Departamento, DepartamentoInput>('departamentos')
+const setoresCrud = criarClienteCrud<Setor, SetorInput>('setores')
 const funcoesCrud = criarClienteCrud<Funcao, FuncaoInput>('funcoes')
 const papeisCrud = criarClienteCrud<Papel, PapelInput>('papeis')
 
@@ -104,10 +104,10 @@ export const tabelasService = {
   atualizarEntidade: entidadesCrud.atualizar,
   excluirEntidade: entidadesCrud.excluir,
 
-  getDepartamentos: departamentosCrud.listar,
-  criarDepartamento: departamentosCrud.criar,
-  atualizarDepartamento: departamentosCrud.atualizar,
-  excluirDepartamento: departamentosCrud.excluir,
+  getSetores: setoresCrud.listar,
+  criarSetor: setoresCrud.criar,
+  atualizarSetor: setoresCrud.atualizar,
+  excluirSetor: setoresCrud.excluir,
 
   getFuncoes: funcoesCrud.listar,
   criarFuncao: funcoesCrud.criar,

@@ -1,10 +1,9 @@
 import type { ComponentProps } from "react"
 import {
-  BookOpen,
-  Bot,
-  ClipboardList,
   Fingerprint,
+  Megaphone,
   GraduationCap,
+  Hamburger,
   Home,
   Palmtree,
   Settings,
@@ -25,18 +24,23 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { AppLogo } from "@/features/app/components/AppLogo"
 import { NavMain } from "@/features/app/components/NavMain"
 import { NavUser } from "@/features/app/components/NavUser"
+import { useAuth } from "@/features/auth/context"
 
 const sidebarData = {
   navMain: [
     {
-      title: "Dashboard",
+      title: "Anúncios",
       url: "/home",
-      icon: Home,
+      icon: Megaphone,
     },
     {
       title: "Usuários",
       url: "/usuarios",
       icon: UsersRound,
+      // COLABORADOR só vê os próprios dados — sem acesso à tela de Usuários
+      // (nem a sidebar mostra, nem a rota deixa entrar por URL direta — ver
+      // RequireNaoColaborador em App.tsx e bloquearColaborador na API).
+      somenteNaoColaborador: true,
     },
     {
       title: "Cursos e qualificações",
@@ -54,21 +58,6 @@ const sidebarData = {
       icon: Fingerprint,
     },
     {
-      title: "Folha",
-      url: "#",
-      icon: ClipboardList,
-    },
-    {
-      title: "Documentos",
-      url: "#",
-      icon: BookOpen,
-    },
-    {
-      title: "Automações",
-      url: "#",
-      icon: Bot,
-    },
-    {
       title: "Configurações",
       url: "/configuracoes",
       icon: Settings,
@@ -77,6 +66,14 @@ const sidebarData = {
       title: "Tabelas",
       url: "/tabelas",
       icon: Table2,
+      // Só ADMIN (nível 7) vê este item — ver RequireAdmin em App.tsx e
+      // exigirPapeis() (sem argumentos = só ADMIN) na API.
+      somenteAdmin: true,
+    },
+    {
+      title: "VR",
+      url: "/vr",
+      icon: Hamburger,
     },
   ],
 }
@@ -86,6 +83,15 @@ const sidebarData = {
  */
 export function AppSidebar(props: ComponentProps<typeof Sidebar>) {
   const { open } = useSidebar()
+  const { usuario } = useAuth()
+  const ehColaborador = usuario?.papelCodigo === "COLABORADOR"
+  const ehAdmin = usuario?.papelCodigo === "ADMIN"
+
+  const navMain = sidebarData.navMain.filter(
+    (item) =>
+      !(item.somenteNaoColaborador && ehColaborador) &&
+      !(item.somenteAdmin && !ehAdmin),
+  )
 
   return (
     <Sidebar
@@ -107,7 +113,7 @@ export function AppSidebar(props: ComponentProps<typeof Sidebar>) {
         </div>
       </SidebarHeader>
       <SidebarContent className="group-data-[collapsible=icon]/sidebar:overflow-visible">
-        <NavMain items={sidebarData.navMain} />
+        <NavMain items={navMain} />
       </SidebarContent>
       <SidebarFooter>
         <NavUser />

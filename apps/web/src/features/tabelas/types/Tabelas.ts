@@ -36,23 +36,21 @@ export interface EntidadeForm extends Record<string, string> {
 }
 
 /**
- * Departamento/setor da empresa (tabela `departments`).
+ * Setor da empresa (tabela `setor`). Só nome — sem descrição. O gestor do setor
+ * é definido pelo dialog "Atribuir gerente" (tela de Usuários).
  */
-export interface Departamento {
+export interface Setor {
   id: string
   nome: string
-  descricao: string | null
   createdAt: string
 }
 
-export interface DepartamentoInput {
+export interface SetorInput {
   nome: string
-  descricao: string | null
 }
 
-export interface DepartamentoForm extends Record<string, string> {
+export interface SetorForm extends Record<string, string> {
   nome: string
-  descricao: string
 }
 
 /**

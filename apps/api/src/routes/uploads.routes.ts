@@ -3,7 +3,7 @@ import { extname } from 'node:path';
 
 import type { FastifyInstance } from 'fastify';
 
-import { getUsuarioAvatarKey, removerAvatarUsuario, updateUserAvatar } from '../lib/database.js';
+import { getUsuarioAvatarKey, removerAvatarUsuario, updateUserAvatar } from '../lib/usuarios.js';
 import { deleteObject, uploadObject } from '../lib/storage.js';
 
 const TIPOS_PERMITIDOS = ['image/jpeg', 'image/png', 'image/webp'];

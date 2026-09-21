@@ -108,7 +108,7 @@ export function verifyAuthToken(token: string): AuthUser {
     id: payload.id,
     email: payload.email,
     nome: payload.nome,
-    departamento: payload.departamento,
+    setor: payload.setor,
     funcao: payload.funcao,
     avatar: payload.avatar,
     papelCodigo: payload.papelCodigo,

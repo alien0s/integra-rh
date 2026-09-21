@@ -31,3 +31,45 @@ export function usePreferenciaFerias30(): [boolean, (ativo: boolean) => void] {
 
   return [ativo, alterar]
 }
+
+/* ── Modo de visualização da Visão geral de Férias ─────────────────────────── */
+
+const FERIAS_VISAO_KEY = 'pref_ferias_visao'
+
+/** Modos de exibição das requisições: cards ou linha do tempo (calendário). */
+export type ModoVisaoFerias = 'cards' | 'timeline'
+
+/** Lê o modo salvo (default 'cards'). Tolerante a localStorage indisponível. */
+export function getModoVisaoFerias(): ModoVisaoFerias {
+  try {
+    return localStorage.getItem(FERIAS_VISAO_KEY) === 'timeline'
+      ? 'timeline'
+      : 'cards'
+  } catch {
+    return 'cards'
+  }
+}
+
+/** Salva o modo de visualização. */
+export function setModoVisaoFerias(modo: ModoVisaoFerias): void {
+  try {
+    localStorage.setItem(FERIAS_VISAO_KEY, modo)
+  } catch {
+    /* localStorage indisponível: ignora (mantém só em memória) */
+  }
+}
+
+/** Hook do modo de visualização (persistido no localStorage). */
+export function usePreferenciaVisaoFerias(): [
+  ModoVisaoFerias,
+  (modo: ModoVisaoFerias) => void,
+] {
+  const [modo, setModoState] = useState(getModoVisaoFerias)
+
+  const alterar = useCallback((novo: ModoVisaoFerias) => {
+    setModoVisaoFerias(novo)
+    setModoState(novo)
+  }, [])
+
+  return [modo, alterar]
+}

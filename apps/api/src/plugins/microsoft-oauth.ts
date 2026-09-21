@@ -1,7 +1,7 @@
 import oauthPlugin, { type OAuth2Namespace } from '@fastify/oauth2';
 import type { FastifyInstance } from 'fastify';
 
-import { findOrCreateUser } from '../lib/database.js';
+import { findOrCreateUser } from '../lib/usuarios.js';
 import { signAuthToken } from '../lib/jwt.js';
 import { getMicrosoftUserAvatar, getMicrosoftUserInfo } from '../lib/microsoft.js';
 import type { AuthUser } from '../types/auth.js';
@@ -115,7 +115,7 @@ export async function microsoftOAuthPlugin(app: FastifyInstance) {
           email: dbUser.email,
           nome: dbUser.nome,
           avatar: dbUser.avatarUrl ?? undefined,
-          departamento: dbUser.departamento ?? undefined,
+          setor: dbUser.setor ?? undefined,
           funcao: dbUser.funcao ?? undefined,
           papelCodigo: dbUser.papelCodigo ?? undefined,
         };
