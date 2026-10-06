@@ -149,24 +149,38 @@ function Sidebar({
   children,
   ...props
 }: SidebarProps) {
-  const { open } = useSidebar()
+  const { open, isMobile, setOpen } = useSidebar()
   const isCollapsed = !open && collapsible === "icon"
 
   return (
-    <aside
-      data-slot="sidebar"
-      data-state={open ? "expanded" : "collapsed"}
-      data-collapsible={isCollapsed ? "icon" : ""}
-      className={cn(
-        "group/sidebar fixed inset-y-0 left-0 z-40 flex h-svh w-[var(--sidebar-width)] flex-col border-r bg-sidebar text-sidebar-foreground transition-[transform,width] duration-200 ease-linear md:sticky md:translate-x-0",
-        open ? "translate-x-0" : "-translate-x-full md:translate-x-0",
-        isCollapsed && "md:w-[var(--sidebar-width-icon)]",
-        className
-      )}
-      {...props}
-    >
-      {children}
-    </aside>
+    <>
+      {/* Abaixo de md (768px) o sidebar flutua por cima do conteúdo (fixed,
+          não empurra a tela) — esse fundo escurecido cobre o resto da tela
+          enquanto está aberto; clicar nele fecha o menu, prática padrão
+          pra overlay desse tipo. */}
+      {isMobile && open ? (
+        <div
+          data-slot="sidebar-backdrop"
+          className="fixed inset-0 z-30"
+          aria-hidden="true"
+          onClick={() => setOpen(false)}
+        />
+      ) : null}
+      <aside
+        data-slot="sidebar"
+        data-state={open ? "expanded" : "collapsed"}
+        data-collapsible={isCollapsed ? "icon" : ""}
+        className={cn(
+          "group/sidebar fixed inset-y-0 left-0 z-40 flex h-svh w-[var(--sidebar-width)] flex-col border-r bg-sidebar text-sidebar-foreground transition-[transform,width] duration-200 ease-linear md:sticky md:translate-x-0",
+          open ? "translate-x-0" : "-translate-x-full md:translate-x-0",
+          isCollapsed && "md:w-[var(--sidebar-width-icon)]",
+          className
+        )}
+        {...props}
+      >
+        {children}
+      </aside>
+    </>
   )
 }
 

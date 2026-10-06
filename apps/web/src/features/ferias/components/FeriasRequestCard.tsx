@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { addDays, parseISO } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
-import { CalendarDays, Check, Clock, Minus } from 'lucide-react'
+import { CalendarDays, Check, Clock, Coffee, Minus, Palmtree } from 'lucide-react'
 
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
@@ -169,6 +169,7 @@ export function FeriasRequestCard({
 }: FeriasRequestCardProps) {
   const {
     id,
+    tipo,
     userId,
     solicitantePapel,
     funcionarioNome,
@@ -262,6 +263,14 @@ export function FeriasRequestCard({
             <Badge variant="secondary" className={STATUS_CONFIG[status].className}>
               {STATUS_CONFIG[status].label}
             </Badge>
+            <Badge variant="outline" className="gap-1 font-normal text-gray-600 dark:text-gray-400">
+              {tipo === 'FOLGA' ? (
+                <Coffee className="h-3 w-3" />
+              ) : (
+                <Palmtree className="h-3 w-3" />
+              )}
+              {tipo === 'FOLGA' ? 'Folga' : 'Férias'}
+            </Badge>
             {origem === 'REGISTRO_MANUAL' && (
               <Badge variant="outline" className="text-[10px] font-normal text-muted-foreground">
                 Lançado manualmente
@@ -273,7 +282,7 @@ export function FeriasRequestCard({
               <button
                 type="button"
                 className="group -ml-1 flex items-center gap-1 rounded-md px-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                aria-label="Ver período de férias no calendário"
+                aria-label={`Ver período d${tipo === 'FOLGA' ? 'a folga' : 'as férias'} no calendário`}
               >
                 <CalendarDays className="h-3 w-3" />
                 <span className="group-hover:underline">

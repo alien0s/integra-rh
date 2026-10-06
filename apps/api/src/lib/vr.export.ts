@@ -278,6 +278,8 @@ export interface LancamentoParaPdf {
   userNome: string;
   mes: number;
   ano: number;
+  /** Grupo (campo) do mês — mostrado junto do mês quando informado. */
+  grupo?: string;
   tipoLancamento: "DESCONTO" | "EXTRA";
   motivo: string | null;
   descontoAplicado: boolean;
@@ -323,13 +325,13 @@ export async function gerarRelatorioTodosLancamentosPdf(
     doc.fillColor("#000000");
 
     const colunas = [
-      { chave: "data", titulo: "Data", largura: 70 },
-      { chave: "colaborador", titulo: "Colaborador", largura: 180 },
-      { chave: "mesRef", titulo: "Mês ref.", largura: 100 },
-      { chave: "tipo", titulo: "Tipo", largura: 80 },
-      { chave: "motivo", titulo: "Motivo", largura: 140 },
-      { chave: "status", titulo: "Status", largura: 80 },
-      { chave: "lancadoPor", titulo: "Lançado por", largura: 140 },
+      { chave: "data", titulo: "Data", largura: 65 },
+      { chave: "colaborador", titulo: "Colaborador", largura: 160 },
+      { chave: "mesRef", titulo: "Mês ref.", largura: 125 },
+      { chave: "tipo", titulo: "Tipo", largura: 65 },
+      { chave: "motivo", titulo: "Motivo", largura: 120 },
+      { chave: "status", titulo: "Status", largura: 65 },
+      { chave: "lancadoPor", titulo: "Lançado por", largura: 130 },
     ] as const;
 
     const inicioX = doc.page.margins.left;
@@ -369,7 +371,12 @@ export async function gerarRelatorioTodosLancamentosPdf(
       x += colunas[0].largura;
       doc.text(l.userNome, x, y, { width: colunas[1].largura });
       x += colunas[1].largura;
-      doc.text(`${MESES_LABEL_EXPORT[l.mes - 1]}/${l.ano}`, x, y, { width: colunas[2].largura });
+      doc.text(
+        `${MESES_LABEL_EXPORT[l.mes - 1]}/${l.ano}${l.grupo ? ` · ${l.grupo}` : ""}`,
+        x,
+        y,
+        { width: colunas[2].largura },
+      );
       x += colunas[2].largura;
       doc
         .fillColor(l.tipoLancamento === "DESCONTO" ? "#c0392b" : "#27ae60")

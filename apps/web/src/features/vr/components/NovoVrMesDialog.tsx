@@ -20,8 +20,10 @@ import type { CriarVrMesInput } from '@/features/vr/types'
 
 interface NovoVrMesDialogProps {
   onCriar: (input: CriarVrMesInput) => Promise<void>
-  /** Mês ainda aberto, se existir — desabilita o botão até ele ser fechado. */
-  mesAbertoExistente?: { mes: number; ano: number }
+  /** Grupos em que a pessoa pode cadastrar mês (ADMIN: todos; demais: só o próprio). */
+  grupos: string[]
+  /** Meses ainda abertos — só pode ter 1 aberto por grupo. */
+  mesesAbertos: { grupo: string; mes: number; ano: number }[]
 }
 
 const MESES_LABEL = [
@@ -41,8 +43,13 @@ function paraIsoLocal(data: Date): string {
  * Dialog "Novo mês": campos (mês, ano, valores) à esquerda, um embaixo do
  * outro; calendário de dias elegíveis à direita.
  */
-export function NovoVrMesDialog({ onCriar, mesAbertoExistente }: NovoVrMesDialogProps) {
+export function NovoVrMesDialog({ onCriar, grupos, mesesAbertos }: NovoVrMesDialogProps) {
   const hoje = new Date()
+  const [grupo, setGrupo] = useState('')
+  // Grupo efetivo: o escolhido (se ainda válido) ou o primeiro disponível.
+  const grupoAtual = grupos.includes(grupo) ? grupo : (grupos[0] ?? '')
+  const mesAbertoDoGrupo = mesesAbertos.find((m) => m.grupo === grupoAtual)
+  const todosBloqueados = grupos.length > 0 && grupos.every((g) => mesesAbertos.some((m) => m.grupo === g))
   const [aberto, setAberto] = useState(false)
   const [enviando, setEnviando] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
@@ -74,6 +81,7 @@ export function NovoVrMesDialog({ onCriar, mesAbertoExistente }: NovoVrMesDialog
     setEnviando(true)
     try {
       await onCriar({
+        grupo: grupoAtual,
         mes,
         ano,
         valorDiario: Number(valorDiario),
@@ -100,10 +108,10 @@ export function NovoVrMesDialog({ onCriar, mesAbertoExistente }: NovoVrMesDialog
       <DialogTrigger asChild>
         <Button
           size="sm"
-          disabled={Boolean(mesAbertoExistente)}
+          disabled={grupos.length === 0 || todosBloqueados}
           title={
-            mesAbertoExistente
-              ? `Feche todas as entidades de ${mesAbertoExistente.mes}/${mesAbertoExistente.ano} antes de cadastrar outro mês`
+            todosBloqueados
+              ? 'Feche todas as entidades do mês aberto antes de cadastrar outro mês'
               : undefined
           }
         >
@@ -124,6 +132,24 @@ export function NovoVrMesDialog({ onCriar, mesAbertoExistente }: NovoVrMesDialog
           <div className="flex flex-col gap-4 sm:flex-row">
             {/* Coluna esquerda: campos, um embaixo do outro */}
             <div className="flex w-full flex-col gap-3 sm:w-52 sm:shrink-0">
+              {grupos.length > 1 && (
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor="vr-grupo">Grupo</Label>
+                  <select
+                    id="vr-grupo"
+                    className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+                    value={grupoAtual}
+                    onChange={(e) => setGrupo(e.target.value)}
+                  >
+                    {grupos.map((g) => (
+                      <option key={g} value={g}>
+                        {g}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="vr-mes">Mês</Label>
                 <select
@@ -172,7 +198,7 @@ export function NovoVrMesDialog({ onCriar, mesAbertoExistente }: NovoVrMesDialog
                   type="number"
                   step="0.01"
                   min="0"
-                  placeholder="25.00"
+                  placeholder="20.00"
                   value={valorDiarioAprendiz}
                   onChange={(e) => setValorDiarioAprendiz(e.target.value)}
                   required
@@ -199,10 +225,20 @@ export function NovoVrMesDialog({ onCriar, mesAbertoExistente }: NovoVrMesDialog
             </div>
           </div>
 
+          {mesAbertoDoGrupo && (
+            <p className="text-sm text-destructive">
+              O grupo {grupoAtual} já tem um mês aberto ({mesAbertoDoGrupo.mes}/{mesAbertoDoGrupo.ano}) —
+              feche todas as entidades dele antes de cadastrar outro.
+            </p>
+          )}
+
           {erro && <p className="text-sm text-destructive">{erro}</p>}
 
           <DialogFooter>
-            <Button type="submit" disabled={enviando || diasSelecionados.length === 0}>
+            <Button
+              type="submit"
+              disabled={enviando || diasSelecionados.length === 0 || Boolean(mesAbertoDoGrupo)}
+            >
               {enviando ? 'Salvando...' : 'Cadastrar mês'}
             </Button>
           </DialogFooter>

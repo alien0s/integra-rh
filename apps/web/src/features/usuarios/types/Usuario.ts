@@ -61,9 +61,11 @@ export interface OpcaoSelecao {
   gestorNome?: string | null
 }
 
-/** Campos editáveis de um usuário (modal de edição). */
+/**
+ * Campos editáveis de um usuário (modal de edição). CPF não está aqui de
+ * propósito — só vem do sistema legado (ver EditarUsuarioModal.tsx).
+ */
 export interface AtualizarUsuarioInput {
-  cpf: string | null
   telefone: string | null
   setorId: string | null
   entidadeId: string | null
@@ -73,15 +75,19 @@ export interface AtualizarUsuarioInput {
 }
 
 /**
- * Uma atividade recente do usuário (o que ELE fez no sistema — não uma
- * notificação que recebeu). Exibida no card "Atividades recentes" do perfil.
+ * Uma atividade recente do usuário — o que ELE fez no sistema OU o que
+ * aconteceu pra ele (uma decisão de outra pessoa, ex.: "RH aprovou seu
+ * diploma"). Exibida no card "Atividades recentes" do perfil.
  */
 export interface AtividadeUsuario {
   id: string
   acao: string
   detalhe: string
   tempo: string
-  /** Para quem essa ação foi (ex.: quem recebeu a férias aprovada/recusada). */
-  destinatarioNome: string
-  icone: 'arquivo' | 'documento' | 'curso' | 'obrigacao'
+  /** Nome da outra pessoa envolvida — pra quem foi (se o dono do perfil foi
+   * quem agiu) ou quem fez (se algo aconteceu pro dono do perfil). */
+  contraparteNome: string
+  /** true = o dono do perfil foi quem agiu; false = alguém agiu sobre ele. */
+  euFizFoi: boolean
+  icone: 'arquivo' | 'documento' | 'curso' | 'obrigacao' | 'folga'
 }

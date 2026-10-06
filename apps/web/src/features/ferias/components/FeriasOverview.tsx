@@ -15,7 +15,7 @@ import { FeriasRequestList } from './FeriasRequestList'
 import { FeriasTimeline } from './FeriasTimeline'
 import { ImprimirMapaFeriasButton } from './ImprimirMapaFeriasButton'
 import { RegistrarFeriasManualDialog } from './RegistrarFeriasManualDialog'
-import { VisaoGeralDpRhDialog } from './VisaoGeralDpRhDialog'
+import { VisaoGeralCiclo } from './VisaoGeralCiclo'
 
 type FiltroStatus = 'TODOS' | 'PENDENTE' | 'AGUARDANDO_DP'
 
@@ -78,18 +78,15 @@ export function FeriasOverview({
 
   return (
     <div className="flex flex-col gap-6">
+      {ehDpRh && <VisaoGeralCiclo />}
+
       <div className="flex min-w-0 flex-col gap-4">
         <div className="flex flex-col gap-3">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <h2 className="text-lg font-semibold tracking-tight">Solicitações de férias</h2>
             <div className="flex items-center gap-2">
               {ehGestor && <EquipeCalendarDialog />}
-              {ehDpRh && (
-                <>
-                  <ImprimirMapaFeriasButton />
-                  <VisaoGeralDpRhDialog />
-                </>
-              )}
+              {ehDpRh && <ImprimirMapaFeriasButton />}
               {podeGerirExcecoes && <ExcecoesFeriasDialog />}
               {podeRegistrarManual && onRegistrarManual && (
                 <RegistrarFeriasManualDialog usuarios={usuarios} onRegistrar={onRegistrarManual} />

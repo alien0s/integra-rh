@@ -36,7 +36,7 @@ function formatarDataBr(iso: string): string {
  * exatamente esses filtros (o PDF só traz o que está sendo visualizado
  * na tela no momento em que ele é gerado).
  */
-export function TodosLancamentosDialog() {
+export function TodosLancamentosDialog({ mostrarGrupo = false }: { mostrarGrupo?: boolean }) {
   const [aberto, setAberto] = useState(false)
   const [carregando, setCarregando] = useState(false)
   const [baixandoPdf, setBaixandoPdf] = useState(false)
@@ -190,6 +190,7 @@ export function TodosLancamentosDialog() {
                     <td className="p-2">{l.userNome}</td>
                     <td className="p-2 text-muted-foreground">
                       {MESES_LABEL[l.mes - 1]}/{l.ano}
+                      {mostrarGrupo && <span className="ml-1 text-xs">· {l.grupo}</span>}
                     </td>
                     <td className="p-2">
                       <Badge variant={l.tipoLancamento === 'DESCONTO' ? 'destructive' : 'secondary'}>

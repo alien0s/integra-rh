@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 
-import { bloquearColaborador } from "../plugins/auth.js";
+import { rodaComoUsuario } from "../lib/database.js";
+import { bloquearColaborador, exigirPapeis } from "../plugins/auth.js";
 import {
   atribuirGerente,
   atualizarUsuario,
@@ -10,6 +11,7 @@ import {
   listFuncoes,
   listSetores,
   listUsuarios,
+  mascararCamposSensiveis,
   type AtualizarUsuarioInput,
   type OpcaoSelecao,
   type UsuarioDetalhado,
@@ -57,7 +59,10 @@ async function bloquearColaboradorForaDoProprioPerfil(
 export async function usuariosRoutes(app: FastifyInstance) {
   /**
    * GET /usuarios
-   * Lista todos os usuários cadastrados.
+   * Lista todos os usuários cadastrados. Campos sensíveis (CPF, salário,
+   * conta bancária, PIS, data de nascimento, sexo, estado civil, cidade/UF)
+   * só vêm preenchidos pra RH/DP/ADMIN — os demais papéis veem null nesses
+   * campos, exceto na própria linha (ver `mascararCamposSensiveis`).
    */
   app.get<{ Reply: ApiListResponse<UsuarioDetalhado> }>(
     "/usuarios",
@@ -65,15 +70,21 @@ export async function usuariosRoutes(app: FastifyInstance) {
       onRequest: [app.authenticate, bloquearColaborador],
       schema: { tags: ["Usuários"], summary: "Lista todos os usuários" },
     },
-    async () => {
-      const usuarios = await listUsuarios();
-      return { data: usuarios, total: usuarios.length };
+    async (request) => {
+      return rodaComoUsuario(request.user, async () => {
+        const usuarios = await listUsuarios();
+        const mascarados = usuarios.map((usuario) =>
+          mascararCamposSensiveis(usuario, request.user),
+        );
+        return { data: mascarados, total: mascarados.length };
+      });
     },
   );
 
   /**
    * GET /usuarios/:usuarioId
-   * Retorna um usuário específico; 404 se não existir.
+   * Retorna um usuário específico; 404 se não existir. Mesma regra de
+   * campos sensíveis do GET /usuarios acima.
    */
   app.get<{
     Params: { usuarioId: string };
@@ -85,21 +96,26 @@ export async function usuariosRoutes(app: FastifyInstance) {
       schema: { tags: ["Usuários"], summary: "Busca um usuário pelo id" },
     },
     async (request, reply) => {
-      const usuario = await getUsuarioPorId(request.params.usuarioId);
+      return rodaComoUsuario(request.user, async () => {
+        const usuario = await getUsuarioPorId(request.params.usuarioId);
 
-      if (!usuario) {
-        return reply.code(404).send({ message: "Usuário não encontrado" });
-      }
+        if (!usuario) {
+          return reply.code(404).send({ message: "Usuário não encontrado" });
+        }
 
-      return { data: usuario };
+        return { data: mascararCamposSensiveis(usuario, request.user) };
+      });
     },
   );
 
   /**
    * GET /usuarios/:usuarioId/atividades
-   * Atividades recentes do usuário: ações que ele realizou no sistema (não
-   * notificações que recebeu) — ver `listAtividadesUsuario`. Mesma
-   * permissão do perfil: COLABORADOR só vê a própria.
+   * Atividades recentes do usuário: o que ele fez E o que aconteceu pra ele
+   * (decisões de outra pessoa, ex.: "RH aprovou seu diploma") — ver
+   * `listAtividadesUsuario`. Mesma permissão do perfil: COLABORADOR só vê a
+   * própria. Vendo o PRÓPRIO perfil, vê tudo; vendo o de OUTRA pessoa, só as
+   * atividades com uma contraparte "importante" (RH/DP/Coord. DP) — ninguém
+   * vê o dia a dia alheio, só o que passou pelo RH/DP.
    */
   app.get<{
     Params: { usuarioId: string };
@@ -111,8 +127,13 @@ export async function usuariosRoutes(app: FastifyInstance) {
       schema: { tags: ["Usuários"], summary: "Lista as atividades recentes do usuário" },
     },
     async (request) => {
-      const atividades = await listAtividadesUsuario(request.params.usuarioId);
-      return { data: atividades, total: atividades.length };
+      return rodaComoUsuario(request.user, async () => {
+        const apenasImportantes = request.user.id !== request.params.usuarioId;
+        const atividades = await listAtividadesUsuario(request.params.usuarioId, {
+          apenasImportantes,
+        });
+        return { data: atividades, total: atividades.length };
+      });
     },
   );
 
@@ -132,29 +153,46 @@ export async function usuariosRoutes(app: FastifyInstance) {
       },
     },
     async (request, reply) => {
-      const key = await getUsuarioAvatarKey(request.params.usuarioId);
+      // Rota pública (sem auth, ver acima) — não tem request.user pra passar
+      // pro rodaComoUsuario. Identidade "de sistema" só pra satisfazer o RLS
+      // de `users` (a policy de leitura é permissiva pra qualquer contexto
+      // autenticado — ver 006_users.sql); sem ALGUM contexto, FORCE RLS
+      // devolveria zero linhas mesmo pra essa consulta pública.
+      return rodaComoUsuario({ id: "public:avatar", papelCodigo: "ADMIN" }, async () => {
+        const key = await getUsuarioAvatarKey(request.params.usuarioId);
 
-      if (!key) {
-        return reply.code(404).send({ message: "Sem avatar" });
-      }
+        if (!key) {
+          return reply.code(404).send({ message: "Sem avatar" });
+        }
 
-      try {
-        const { body, contentType } = await getObjectStream(key);
-        reply.header("Content-Type", contentType);
-        // Cache curto no navegador: evita refetch (e "flash") a cada navegação,
-        // já que a sidebar remonta. Após trocar a foto, o front adiciona um
-        // ?t=timestamp para furar o cache e exibir a nova na hora.
-        reply.header("Cache-Control", "private, max-age=60");
-        return reply.send(body);
-      } catch {
-        return reply.code(404).send({ message: "Avatar indisponível" });
-      }
+        try {
+          const { body, contentType } = await getObjectStream(key);
+          reply.header("Content-Type", contentType);
+          // Cache curto no navegador: evita refetch (e "flash") a cada navegação,
+          // já que a sidebar remonta. Após trocar a foto, o front adiciona um
+          // ?t=timestamp para furar o cache e exibir a nova na hora.
+          reply.header("Cache-Control", "private, max-age=60");
+          return reply.send(body);
+        } catch {
+          return reply.code(404).send({ message: "Avatar indisponível" });
+        }
+      });
     },
   );
 
   /**
    * PATCH /usuarios/:usuarioId
-   * Atualiza os campos editáveis (cpf, telefone, setor, função).
+   * Atualiza os campos editáveis (telefone, setor, função, papel). CPF não
+   * está aqui de propósito — só vem do sistema legado (ver
+   * lib/usuarios.ts: inserirUsuarioComLegado/preencherDadosLegadoSeVazio).
+   *
+   * Restrita a ADMIN (`exigirPapeis()` sem argumentos — mesma convenção de
+   * tabelas.routes.ts) e nunca sobre o próprio usuário logado: esta rota
+   * grava `roleCodigo`, então qualquer papel abaixo disso poderia se
+   * auto-promover a ADMIN antes desta checagem existir. Espelha
+   * `podeEditarUsuario` (apps/web/src/features/usuarios/lib/permissoes.ts)
+   * — lá isso já era só UX; agora vale de verdade aqui também. Auto-edição
+   * de contato (telefone) continua liberada para todos via PATCH /auth/me.
    */
   app.patch<{
     Params: { usuarioId: string };
@@ -163,14 +201,13 @@ export async function usuariosRoutes(app: FastifyInstance) {
   }>(
     "/usuarios/:usuarioId",
     {
-      onRequest: [app.authenticate, bloquearColaborador],
+      onRequest: [app.authenticate, exigirPapeis()],
       schema: {
         tags: ["Usuários"],
-        summary: "Atualiza cpf, telefone, setor, função, papel ou tipo de vínculo",
+        summary: "Atualiza telefone, setor, função, papel ou tipo de vínculo (ADMIN)",
         body: {
           type: "object",
           properties: {
-            cpf: { type: ["string", "null"] },
             telefone: { type: ["string", "null"] },
             setorId: { type: ["string", "null"] },
             entidadeId: { type: ["string", "null"] },
@@ -186,7 +223,13 @@ export async function usuariosRoutes(app: FastifyInstance) {
       },
     },
     async (request, reply) => {
-      try {
+      if (request.params.usuarioId === request.user.id) {
+        return reply
+          .code(403)
+          .send({ message: "Você não pode editar o próprio cadastro por aqui." });
+      }
+
+      return rodaComoUsuario(request.user, async () => {
         const usuario = await atualizarUsuario(
           request.params.usuarioId,
           request.body,
@@ -197,15 +240,7 @@ export async function usuariosRoutes(app: FastifyInstance) {
         }
 
         return { data: usuario };
-      } catch (error) {
-        // CPF duplicado dentro da entidade (unique_cpf_per_entity).
-        if ((error as { code?: string }).code === "23505") {
-          return reply
-            .code(409)
-            .send({ message: "CPF já cadastrado para outro usuário." });
-        }
-        throw error;
-      }
+      });
     },
   );
 
@@ -214,14 +249,17 @@ export async function usuariosRoutes(app: FastifyInstance) {
    * Aceita multipart com um arquivo (`file`) OU um campo `url` (o servidor
    * baixa a planilha). Lê e-mail, nome e entidade; cria os que ainda não
    * existem e devolve um resumo.
+   *
+   * Restrita a ADMIN (`exigirPapeis()`) — criação em massa de usuários é
+   * operação administrativa, mesmo raciocínio do PATCH acima.
    */
   app.post<{ Reply: ApiResponse<ResultadoImportacao> | { message: string } }>(
     "/usuarios/importar",
     {
-      onRequest: [app.authenticate, bloquearColaborador],
+      onRequest: [app.authenticate, exigirPapeis()],
       schema: {
         tags: ["Usuários"],
-        summary: "Importa usuários de CSV/Excel (arquivo ou URL)",
+        summary: "Importa usuários de CSV/Excel (arquivo ou URL) (ADMIN)",
         consumes: ["multipart/form-data"],
       },
     },
@@ -286,26 +324,42 @@ export async function usuariosRoutes(app: FastifyInstance) {
           .send({ message: "A planilha está vazia ou sem linhas de dados." });
       }
 
-      const resultado = await importarUsuarios(linhas);
-      return { data: resultado };
+      return rodaComoUsuario(request.user, async () => {
+        const resultado = await importarUsuarios(linhas);
+        return { data: resultado };
+      });
     },
   );
 
   /**
    * DELETE /usuarios/:usuarioId — exclui um usuário.
+   *
+   * Restrita a ADMIN (`exigirPapeis()`) e nunca sobre o próprio usuário
+   * logado — exclusão é irreversível, mesmo padrão do PATCH acima.
    */
   app.delete<{
     Params: { usuarioId: string };
     Reply: { message: string };
   }>(
     "/usuarios/:usuarioId",
-    { onRequest: [app.authenticate, bloquearColaborador] },
+    {
+      onRequest: [app.authenticate, exigirPapeis()],
+      schema: { tags: ["Usuários"], summary: "Exclui um usuário (ADMIN)" },
+    },
     async (request, reply) => {
-      const excluido = await excluirUsuario(request.params.usuarioId);
-      if (!excluido) {
-        return reply.code(404).send({ message: "Usuário não encontrado" });
+      if (request.params.usuarioId === request.user.id) {
+        return reply
+          .code(403)
+          .send({ message: "Você não pode excluir o próprio usuário." });
       }
-      return reply.code(200).send({ message: "Usuário excluído" });
+
+      return rodaComoUsuario(request.user, async () => {
+        const excluido = await excluirUsuario(request.params.usuarioId);
+        if (!excluido) {
+          return reply.code(404).send({ message: "Usuário não encontrado" });
+        }
+        return reply.code(200).send({ message: "Usuário excluído" });
+      });
     },
   );
 
@@ -314,6 +368,9 @@ export async function usuariosRoutes(app: FastifyInstance) {
    * um setor pelo e-mail. Cria o usuário (só com email + setor + papel) se
    * ainda não existir; os demais dados vêm do APS no 1º login dessa pessoa.
    * Existe para não depender só da função do legado (nem sempre confiável).
+   *
+   * Restrita a ADMIN (`exigirPapeis()`) — atribui um papel (GESTOR), mesma
+   * classe de operação que o PATCH acima.
    */
   app.post<{
     Body: { email: string; setorId: string };
@@ -321,10 +378,10 @@ export async function usuariosRoutes(app: FastifyInstance) {
   }>(
     "/usuarios/gerentes",
     {
-      onRequest: [app.authenticate, bloquearColaborador],
+      onRequest: [app.authenticate, exigirPapeis()],
       schema: {
         tags: ["Usuários"],
-        summary: "Atribui um gerente (papel GESTOR) a um setor",
+        summary: "Atribui um gerente (papel GESTOR) a um setor (ADMIN)",
         body: {
           type: "object",
           required: ["email", "setorId"],
@@ -344,19 +401,21 @@ export async function usuariosRoutes(app: FastifyInstance) {
           .send({ message: "Use um e-mail corporativo (@adventistas.org)." });
       }
 
-      try {
-        const usuario = await atribuirGerente({
-          email,
-          setorId: request.body.setorId,
-          criadoPorUserId: request.user.id,
-        });
-        return { data: usuario };
-      } catch (error) {
-        if ((error as { code?: string }).code === "23503") {
-          return reply.code(404).send({ message: "Setor não encontrado." });
+      return rodaComoUsuario(request.user, async () => {
+        try {
+          const usuario = await atribuirGerente({
+            email,
+            setorId: request.body.setorId,
+            criadoPorUserId: request.user.id,
+          });
+          return { data: usuario };
+        } catch (error) {
+          if ((error as { code?: string }).code === "23503") {
+            return reply.code(404).send({ message: "Setor não encontrado." });
+          }
+          throw error;
         }
-        throw error;
-      }
+      });
     },
   );
 

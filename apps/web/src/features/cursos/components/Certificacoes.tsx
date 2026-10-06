@@ -3,7 +3,7 @@ import { Award, Eye, Plus, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { useToast } from '@/hooks/use-toast'
-import { abrirAnexoBlob } from '@/lib/cursos'
+import { abrirArquivo } from '@/features/visualizador-arquivo'
 import { cursosService } from '../services'
 import type { CursoQualificacao, NovoCursoInput } from '../types'
 import { NewCursoModal } from './NewCursoModal'
@@ -32,7 +32,7 @@ export function Certificacoes({ data, hideAddButton, onCriar, onExcluir }: Certi
   async function verCertificado(item: CursoQualificacao) {
     try {
       const blob = await cursosService.baixarCertificadoCurso(item.id)
-      abrirAnexoBlob(blob)
+      abrirArquivo({ blob, titulo: item.nome })
     } catch (error) {
       toast({
         title: 'Não foi possível abrir o certificado',

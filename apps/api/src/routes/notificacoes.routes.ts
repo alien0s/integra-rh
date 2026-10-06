@@ -1,5 +1,6 @@
 import type { FastifyInstance } from "fastify";
 
+import { rodaComoUsuario } from "../lib/database.js";
 import { verifyAuthToken } from "../lib/jwt.js";
 import {
   contarNaoLidas,
@@ -79,20 +80,27 @@ export async function notificacoesRoutes(app: FastifyInstance) {
       schema: { tags: ["Notificações"], summary: "Lista as notificações do usuário" },
     },
     async (request) => {
-      // Obrigações recorrentes SOB DEMANDA (ver lib/obrigacoes.ts): ao abrir o
-      // app (o sino busca o feed), avalia pendências do colaborador (ex.:
-      // ainda não solicitou férias) e emite notificações antes de listar.
-      // Idempotente (no máximo 1 por dia por obrigação); não derruba a
-      // listagem se falhar.
-      try {
-        await avaliarObrigacoesRecorrentes(request.user.id);
-      } catch (error) {
-        request.log.warn({ error }, "Falha ao avaliar obrigações recorrentes");
-      }
+      // rodaComoUsuario: esta rota faz JOIN com ferias_solicitacoes (pra
+      // saber se uma notificação de férias ainda está acionável — ver
+      // acionavelPorEtapa em lib/notificacoes.ts), tabela com RLS ligado
+      // (ver migration 025_rls_ferias_solicitacoes.sql). Sem a identidade
+      // setada, essa parte do JOIN viria vazia pra todo mundo.
+      return rodaComoUsuario(request.user, async () => {
+        // Obrigações recorrentes SOB DEMANDA (ver lib/obrigacoes.ts): ao abrir o
+        // app (o sino busca o feed), avalia pendências do colaborador (ex.:
+        // ainda não solicitou férias) e emite notificações antes de listar.
+        // Idempotente (no máximo 1 por dia por obrigação); não derruba a
+        // listagem se falhar.
+        try {
+          await avaliarObrigacoesRecorrentes(request.user.id);
+        } catch (error) {
+          request.log.warn({ error }, "Falha ao avaliar obrigações recorrentes");
+        }
 
-      const notificacoes = await listNotificacoes(request.user.id);
-      const naoLidas = await contarNaoLidas(request.user.id);
-      return { data: notificacoes, total: notificacoes.length, naoLidas };
+        const notificacoes = await listNotificacoes(request.user.id);
+        const naoLidas = await contarNaoLidas(request.user.id);
+        return { data: notificacoes, total: notificacoes.length, naoLidas };
+      });
     },
   );
 

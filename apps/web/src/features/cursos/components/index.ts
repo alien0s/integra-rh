@@ -10,3 +10,4 @@ export { FuncionariosCursosSuperioresTable } from './FuncionariosCursosSuperiore
 export { Idiomas } from './Idiomas'
 export { Certificacoes } from './Certificacoes'
 export { CursosWorkshops } from './CursosWorkshops'
+export { DetalheQualificacaoDialog } from './DetalheQualificacaoDialog'

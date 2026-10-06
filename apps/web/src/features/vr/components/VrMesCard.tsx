@@ -22,6 +22,8 @@ interface VrMesCardProps {
   entidades: EntidadeOpcao[]
   /** Chamado depois de editar ou fechar uma entidade — recarrega a lista de meses. */
   onAtualizado: () => Promise<void>
+  /** Mostra o grupo (campo) do mês no cabeçalho — útil pro ADMIN, que vê todos os grupos. */
+  mostrarGrupo?: boolean
 }
 
 const MESES_LABEL = [
@@ -33,7 +35,13 @@ function formatarMoeda(valor: number): string {
   return valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 }
 
-export function VrMesCard({ vrMes, colaboradores, entidades, onAtualizado }: VrMesCardProps) {
+export function VrMesCard({
+  vrMes,
+  colaboradores,
+  entidades,
+  onAtualizado,
+  mostrarGrupo = false,
+}: VrMesCardProps) {
   const [baixando, setBaixando] = useState<FormatoExportacaoVr | null>(null)
 
   async function handleBaixarTudo(formato: FormatoExportacaoVr) {
@@ -50,6 +58,9 @@ export function VrMesCard({ vrMes, colaboradores, entidades, onAtualizado }: VrM
       <div className="flex items-center justify-between">
         <h3 className="font-medium">
           {MESES_LABEL[vrMes.mes - 1]} / {vrMes.ano}
+          {mostrarGrupo && (
+            <span className="ml-2 text-xs font-normal text-muted-foreground">{vrMes.grupo}</span>
+          )}
         </h3>
         <div className="flex items-center gap-1">
           {vrMes.fechado ? (

@@ -26,6 +26,36 @@ import { NavMain } from "@/features/app/components/NavMain"
 import { NavUser } from "@/features/app/components/NavUser"
 import { useAuth } from "@/features/auth/context"
 
+/**
+ * Papéis liberados pro VR (por `codigo`, catálogo `roles`) além de ADMIN: DP,
+ * COORDENADOR DP, ASSISTENTE (Tesoureiro Assistente, nível 4) e TESOUREIRO
+ * (nível 5). Mesmo conjunto em AuthGuards.tsx (RequireVr) e no back
+ * (PAPEIS_LIBERADOS_VR em vr.routes.ts, com o mapeamento código → id de cada
+ * papel documentado lá) — sem módulo compartilhado entre os deployables,
+ * mantenha as três listas em sincronia. Ver também docs/vr.md.
+ */
+const PAPEIS_LIBERADOS_VR = new Set(["DP", "COORDENADOR DP", "ASSISTENTE", "TESOUREIRO"])
+
+/**
+ * Papéis liberados em "Cursos e qualificações" durante o beta, além de
+ * ADMIN — RH já modera (aprovar/recusar) cursos/formações/idiomas nessa tela
+ * fora do beta. Mesmo conjunto em App.tsx (PAPEIS_LIBERADOS_CURSOS_BETA) e
+ * no backend (PAPEIS_RH em qualificacoes.routes.ts) — mantenha os três em
+ * sincronia.
+ */
+const PAPEIS_LIBERADOS_CURSOS_BETA = new Set(["RH"])
+
+/**
+ * Lançamento pra algumas pessoas (por enquanto): todo item da sidebar fica
+ * com cadeado (não navega) pra quem não é ADMIN — EXCETO VR, que já tem seu
+ * próprio controle de acesso (podeVerVr), e Cursos e qualificações pra quem
+ * está em PAPEIS_LIBERADOS_CURSOS_BETA. ADMIN sempre vê tudo liberado. Isso é
+ * só uma camada temporária por cima das regras de visibilidade de sempre
+ * (somenteNaoColaborador/somenteAdmin/somenteVr, que continuam decidindo
+ * quem VÊ cada item) — desative aqui quando lançar geral.
+ */
+const LANCAMENTO_BETA_ATIVO = true
+
 const sidebarData = {
   navMain: [
     {
@@ -46,6 +76,9 @@ const sidebarData = {
       title: "Cursos e qualificações",
       url: "/cursos",
       icon: GraduationCap,
+      // RH já modera cursos/formações/idiomas aqui — não fica com cadeado
+      // durante o beta (ver PAPEIS_LIBERADOS_CURSOS_BETA acima).
+      papeisLiberadosBeta: PAPEIS_LIBERADOS_CURSOS_BETA,
     },
     {
       title: "Férias",
@@ -74,6 +107,9 @@ const sidebarData = {
       title: "VR",
       url: "/vr",
       icon: Hamburger,
+      // Só DP (ou os IDs liberados) vê este item — ver RequireVr em App.tsx e
+      // exigirAcessoVr na API (vr.routes.ts).
+      somenteVr: true,
     },
   ],
 }
@@ -86,12 +122,25 @@ export function AppSidebar(props: ComponentProps<typeof Sidebar>) {
   const { usuario } = useAuth()
   const ehColaborador = usuario?.papelCodigo === "COLABORADOR"
   const ehAdmin = usuario?.papelCodigo === "ADMIN"
+  const podeVerVr =
+    ehAdmin ||
+    (usuario?.papelCodigo !== undefined && PAPEIS_LIBERADOS_VR.has(usuario.papelCodigo))
 
-  const navMain = sidebarData.navMain.filter(
-    (item) =>
-      !(item.somenteNaoColaborador && ehColaborador) &&
-      !(item.somenteAdmin && !ehAdmin),
-  )
+  const navMain = sidebarData.navMain
+    .filter(
+      (item) =>
+        !(item.somenteNaoColaborador && ehColaborador) &&
+        !(item.somenteAdmin && !ehAdmin) &&
+        !(item.somenteVr && !podeVerVr),
+    )
+    .map((item) => ({
+      ...item,
+      locked:
+        LANCAMENTO_BETA_ATIVO &&
+        !ehAdmin &&
+        !item.somenteVr &&
+        !(usuario?.papelCodigo !== undefined && item.papeisLiberadosBeta?.has(usuario.papelCodigo)),
+    }))
 
   return (
     <Sidebar

@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "tsx watch --env-file=../../.env src/server.ts",
+    "dev": "PORT=3002 tsx watch --env-file=../../.env src/server.ts",
     "build": "tsc --noEmit && tsup src/server.ts --format esm --sourcemap --clean --out-dir dist",
     "start": "node --env-file=../../.env dist/server.js",
     "type-check": "tsc --noEmit",
@@ -22,14 +22,14 @@
     "@fastify/oauth2": "^8.2.0",
     "@fastify/swagger": "9.8.1",
     "@scalar/fastify-api-reference": "1.64.0",
-    "fastify": "^5.1.0",
+    "fastify": "^5.12.1",
     "fastify-plugin": "^6.0.0",
     "ldapjs": "^3.0.7",
     "mssql": "^12.7.0",
     "node-cron": "^4.6.0",
     "pdfkit": "^0.19.1",
     "postgres": "^3.4.9",
-    "xlsx": "^0.18.5"
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
   },
   "devDependencies": {
     "@types/ldapjs": "^3.0.6",

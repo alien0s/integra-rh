@@ -14,6 +14,8 @@ import {
   rejeitarComunicado,
   removerComunicado,
 } from "../lib/comunicacao.js";
+import { podeAprovarOuRejeitar } from "../lib/comunicacao.regras.js";
+import { rodaComoUsuario } from "../lib/database.js";
 import { emitirParaPapeis, emitirParaUsuario } from "../lib/notificacoes.js";
 import { getObjectStream, uploadObject } from "../lib/storage.js";
 import { bloquearColaborador, exigirPapeis } from "../plugins/auth.js";
@@ -44,9 +46,11 @@ export async function comunicacaoRoutes(app: FastifyInstance) {
       onRequest: [app.authenticate],
       schema: { tags: ["Comunicação"], summary: "Lista os comunicados ativos (mural)" },
     },
-    async () => {
-      const comunicados = await listarComunicadosAtivos();
-      return { data: comunicados, total: comunicados.length };
+    async (request) => {
+      return rodaComoUsuario(request.user, async () => {
+        const comunicados = await listarComunicadosAtivos();
+        return { data: comunicados, total: comunicados.length };
+      });
     },
   );
 
@@ -57,9 +61,11 @@ export async function comunicacaoRoutes(app: FastifyInstance) {
       onRequest: [app.authenticate, exigirPapeis("RH")],
       schema: { tags: ["Comunicação"], summary: "Lista os comunicados aguardando aprovação (RH)" },
     },
-    async () => {
-      const comunicados = await listarComunicadosPendentes();
-      return { data: comunicados, total: comunicados.length };
+    async (request) => {
+      return rodaComoUsuario(request.user, async () => {
+        const comunicados = await listarComunicadosPendentes();
+        return { data: comunicados, total: comunicados.length };
+      });
     },
   );
 
@@ -70,9 +76,11 @@ export async function comunicacaoRoutes(app: FastifyInstance) {
       onRequest: [app.authenticate, exigirPapeis("RH")],
       schema: { tags: ["Comunicação"], summary: "Lista os comunicados agendados pro futuro (RH)" },
     },
-    async () => {
-      const comunicados = await listarComunicadosAgendados();
-      return { data: comunicados, total: comunicados.length };
+    async (request) => {
+      return rodaComoUsuario(request.user, async () => {
+        const comunicados = await listarComunicadosAgendados();
+        return { data: comunicados, total: comunicados.length };
+      });
     },
   );
 
@@ -107,33 +115,35 @@ export async function comunicacaoRoutes(app: FastifyInstance) {
       },
     },
     async (request, reply) => {
-      let comunicado: Comunicado;
-      try {
-        comunicado = await criarComunicado(
-          request.body,
-          request.user.id,
-          request.user.papelCodigo!,
-        );
-      } catch (error) {
-        return reply.code(400).send({ message: (error as Error).message });
-      }
-
-      if (comunicado.status === "AGUARDANDO_APROVACAO") {
+      return rodaComoUsuario(request.user, async () => {
+        let comunicado: Comunicado;
         try {
-          await emitirParaPapeis(["RH"], {
-            atorId: request.user.id,
-            tipo: "COMUNICADO_AGUARDA_APROVACAO",
-            acao: "solicitou a publicação de um comunicado",
-            detalhe: comunicado.titulo,
-            referenciaTabela: "comunicados",
-            requerAcao: true,
-          });
+          comunicado = await criarComunicado(
+            request.body,
+            request.user.id,
+            request.user.papelCodigo!,
+          );
         } catch (error) {
-          request.log.warn({ error }, "Falha ao notificar RH sobre novo comunicado");
+          return reply.code(400).send({ message: (error as Error).message });
         }
-      }
 
-      return reply.code(201).send({ data: comunicado });
+        if (comunicado.status === "AGUARDANDO_APROVACAO") {
+          try {
+            await emitirParaPapeis(["RH"], {
+              atorId: request.user.id,
+              tipo: "COMUNICADO_AGUARDA_APROVACAO",
+              acao: "solicitou a publicação de um comunicado",
+              detalhe: comunicado.titulo,
+              referenciaTabela: "comunicados",
+              requerAcao: true,
+            });
+          } catch (error) {
+            request.log.warn({ error }, "Falha ao notificar RH sobre novo comunicado");
+          }
+        }
+
+        return reply.code(201).send({ data: comunicado });
+      });
     },
   );
 
@@ -148,30 +158,32 @@ export async function comunicacaoRoutes(app: FastifyInstance) {
       schema: { tags: ["Comunicação"], summary: "RH aprova e publica o comunicado" },
     },
     async (request, reply) => {
-      let comunicado: Comunicado;
-      try {
-        comunicado = await aprovarComunicado(
-          Number(request.params.id),
-          request.user.id,
-          request.user.papelCodigo!,
-        );
-      } catch (error) {
-        return reply.code(400).send({ message: (error as Error).message });
-      }
+      return rodaComoUsuario(request.user, async () => {
+        let comunicado: Comunicado;
+        try {
+          comunicado = await aprovarComunicado(
+            Number(request.params.id),
+            request.user.id,
+            request.user.papelCodigo!,
+          );
+        } catch (error) {
+          return reply.code(400).send({ message: (error as Error).message });
+        }
 
-      try {
-        await emitirParaUsuario(comunicado.criadoPor, {
-          atorId: request.user.id,
-          tipo: "COMUNICADO_APROVADO",
-          acao: "aprovou e publicou seu comunicado",
-          detalhe: comunicado.titulo,
-          referenciaTabela: "comunicados",
-        });
-      } catch (error) {
-        request.log.warn({ error }, "Falha ao notificar aprovação de comunicado");
-      }
+        try {
+          await emitirParaUsuario(comunicado.criadoPor, {
+            atorId: request.user.id,
+            tipo: "COMUNICADO_APROVADO",
+            acao: "aprovou e publicou seu comunicado",
+            detalhe: comunicado.titulo,
+            referenciaTabela: "comunicados",
+          });
+        } catch (error) {
+          request.log.warn({ error }, "Falha ao notificar aprovação de comunicado");
+        }
 
-      return { data: comunicado };
+        return { data: comunicado };
+      });
     },
   );
 
@@ -196,31 +208,33 @@ export async function comunicacaoRoutes(app: FastifyInstance) {
       },
     },
     async (request, reply) => {
-      let comunicado: Comunicado;
-      try {
-        comunicado = await rejeitarComunicado(
-          Number(request.params.id),
-          request.body.motivoRejeicao,
-          request.user.id,
-          request.user.papelCodigo!,
-        );
-      } catch (error) {
-        return reply.code(400).send({ message: (error as Error).message });
-      }
+      return rodaComoUsuario(request.user, async () => {
+        let comunicado: Comunicado;
+        try {
+          comunicado = await rejeitarComunicado(
+            Number(request.params.id),
+            request.body.motivoRejeicao,
+            request.user.id,
+            request.user.papelCodigo!,
+          );
+        } catch (error) {
+          return reply.code(400).send({ message: (error as Error).message });
+        }
 
-      try {
-        await emitirParaUsuario(comunicado.criadoPor, {
-          atorId: request.user.id,
-          tipo: "COMUNICADO_REJEITADO",
-          acao: "rejeitou seu comunicado",
-          detalhe: comunicado.motivoRejeicao ?? undefined,
-          referenciaTabela: "comunicados",
-        });
-      } catch (error) {
-        request.log.warn({ error }, "Falha ao notificar rejeição de comunicado");
-      }
+        try {
+          await emitirParaUsuario(comunicado.criadoPor, {
+            atorId: request.user.id,
+            tipo: "COMUNICADO_REJEITADO",
+            acao: "rejeitou seu comunicado",
+            detalhe: comunicado.motivoRejeicao ?? undefined,
+            referenciaTabela: "comunicados",
+          });
+        } catch (error) {
+          request.log.warn({ error }, "Falha ao notificar rejeição de comunicado");
+        }
 
-      return { data: comunicado };
+        return { data: comunicado };
+      });
     },
   );
 
@@ -235,18 +249,20 @@ export async function comunicacaoRoutes(app: FastifyInstance) {
       schema: { tags: ["Comunicação"], summary: "RH remove o comunicado do ar" },
     },
     async (request, reply) => {
-      let comunicado: Comunicado;
-      try {
-        comunicado = await removerComunicado(
-          Number(request.params.id),
-          request.user.id,
-          request.user.papelCodigo!,
-        );
-      } catch (error) {
-        return reply.code(400).send({ message: (error as Error).message });
-      }
+      return rodaComoUsuario(request.user, async () => {
+        let comunicado: Comunicado;
+        try {
+          comunicado = await removerComunicado(
+            Number(request.params.id),
+            request.user.id,
+            request.user.papelCodigo!,
+          );
+        } catch (error) {
+          return reply.code(400).send({ message: (error as Error).message });
+        }
 
-      return { data: comunicado };
+        return { data: comunicado };
+      });
     },
   );
 
@@ -262,40 +278,46 @@ export async function comunicacaoRoutes(app: FastifyInstance) {
       },
     },
     async (request, reply) => {
-      const file = await request.file();
-      if (!file) {
-        return reply.code(400).send({ message: "Nenhum arquivo enviado" });
-      }
+      return rodaComoUsuario(request.user, async () => {
+        const file = await request.file();
+        if (!file) {
+          return reply.code(400).send({ message: "Nenhum arquivo enviado" });
+        }
 
-      const anexoTipo = TIPOS_PERMITIDOS[file.mimetype];
-      if (!anexoTipo) {
-        return reply
-          .code(415)
-          .send({ message: "Formato inválido. Use JPEG, PNG, WebP ou PDF." });
-      }
+        const anexoTipo = TIPOS_PERMITIDOS[file.mimetype];
+        if (!anexoTipo) {
+          return reply
+            .code(415)
+            .send({ message: "Formato inválido. Use JPEG, PNG, WebP ou PDF." });
+        }
 
-      const comunicadoId = Number(request.params.id);
-      const buffer = await file.toBuffer();
-      const extensao = extname(file.filename) || "";
-      const key = `comunicados/${comunicadoId}/${randomUUID()}${extensao}`;
+        const comunicadoId = Number(request.params.id);
+        const buffer = await file.toBuffer();
+        const extensao = extname(file.filename) || "";
+        const key = `comunicados/${comunicadoId}/${randomUUID()}${extensao}`;
 
-      try {
-        await uploadObject(key, buffer, file.mimetype);
-        const comunicado = await anexarArquivoComunicado(
-          comunicadoId,
-          request.user.id,
-          request.user.papelCodigo!,
-          key,
-          anexoTipo,
-        );
-        return reply.send({ data: comunicado });
-      } catch (error) {
-        return reply.code(400).send({ message: (error as Error).message });
-      }
+        try {
+          await uploadObject(key, buffer, file.mimetype);
+          const comunicado = await anexarArquivoComunicado(
+            comunicadoId,
+            request.user.id,
+            request.user.papelCodigo!,
+            key,
+            anexoTipo,
+          );
+          return reply.send({ data: comunicado });
+        } catch (error) {
+          return reply.code(400).send({ message: (error as Error).message });
+        }
+      });
     },
   );
 
   // Baixa o anexo do comunicado (a API repassa o arquivo, o front nunca acessa o MinIO direto).
+  // Enquanto não está PUBLICADO/ENCERRADO (rascunho, aguardando aprovação,
+  // rejeitado, removido), só o criador ou quem aprova (RH/Admin) pode ver —
+  // senão dava pra baixar o anexo de um comunicado ainda não aprovado (ou já
+  // rejeitado) só adivinhando o id sequencial (IDOR).
   app.get<{ Params: { id: string } }>(
     "/comunicados/:id/anexo",
     {
@@ -303,14 +325,25 @@ export async function comunicacaoRoutes(app: FastifyInstance) {
       schema: { tags: ["Comunicação"], summary: "Baixa o anexo do comunicado" },
     },
     async (request, reply) => {
-      const comunicado = await buscarComunicadoPorId(Number(request.params.id));
-      if (!comunicado || !comunicado.anexoUrl) {
-        return reply.code(404).send({ message: "Anexo não encontrado" });
-      }
+      return rodaComoUsuario(request.user, async () => {
+        const comunicado = await buscarComunicadoPorId(Number(request.params.id));
+        if (!comunicado || !comunicado.anexoUrl) {
+          return reply.code(404).send({ message: "Anexo não encontrado" });
+        }
 
-      const { body, contentType } = await getObjectStream(comunicado.anexoUrl);
-      reply.header("Content-Type", contentType);
-      return reply.send(body);
+        const publico = comunicado.status === "PUBLICADO" || comunicado.status === "ENCERRADO";
+        const podeVer =
+          publico ||
+          comunicado.criadoPor === request.user.id ||
+          podeAprovarOuRejeitar(request.user.papelCodigo!);
+        if (!podeVer) {
+          return reply.code(403).send({ message: "Sem permissão para ver este anexo." });
+        }
+
+        const { body, contentType } = await getObjectStream(comunicado.anexoUrl);
+        reply.header("Content-Type", contentType);
+        return reply.send(body);
+      });
     },
   );
 }

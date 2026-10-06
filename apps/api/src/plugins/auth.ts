@@ -94,3 +94,55 @@ export function exigirPapeis(...codigos: string[]) {
     }
   };
 }
+
+/**
+ * Lançamento pra algumas pessoas (por enquanto): só ADMIN acessa Férias e
+ * Qualificações (Qualificações também libera RH, que já modera cursos/
+ * formações/idiomas nessas telas — ver `exigirAdminOuPapeisDuranteBeta`
+ * abaixo) — espelha `RequireLancamentoBeta`
+ * (apps/web/src/features/auth/components/AuthGuards.tsx, mesmo nome de flag
+ * `LANCAMENTO_BETA_ATIVO`), que já bloqueia a navegação no front pra
+ * qualquer não-admin (ou não-liberado). Sem isso aqui, o front escondia o
+ * menu/redirecionava, mas a API continuava aceitando GESTOR/DP/RH/COLABORADOR
+ * normalmente — bastava chamar a rota direto (Postman/curl) pra contornar.
+ *
+ * Registrado como hook de `preHandler` no nível do plugin (`app.addHook`
+ * dentro de `feriasRoutes`/`qualificacoesRoutes`), não em cada rota — roda
+ * DEPOIS de `app.authenticate` (fase `onRequest`, já populou `request.user`)
+ * e ANTES dos preHandlers de cada rota, então cobre todas as rotas do
+ * arquivo automaticamente, sem precisar editar rota por rota.
+ *
+ * Desative os dois juntos (aqui e no front) quando lançar geral.
+ */
+const LANCAMENTO_BETA_ATIVO = true;
+
+export async function exigirAdminDuranteBeta(
+  request: FastifyRequest,
+  reply: FastifyReply,
+) {
+  if (!LANCAMENTO_BETA_ATIVO) return;
+  const papel = request.user.papelCodigo;
+  if (papel === undefined || papel === "ADMIN") return; // dev / ADMIN passam
+  await reply
+    .code(403)
+    .send({ message: "Este recurso está em lançamento restrito no momento." });
+}
+
+/**
+ * Variante de `exigirAdminDuranteBeta` que também libera os papéis em
+ * `papeisExtras` (além de ADMIN) — usada em Qualificações, onde RH já tem
+ * permissão de moderar (aprovar/recusar) cursos/formações/idiomas fora do
+ * beta; sem essa liberação, RH esbarrava no bloqueio do lançamento antes
+ * mesmo de chegar na checagem de papel da própria rota.
+ */
+export function exigirAdminOuPapeisDuranteBeta(papeisExtras: Iterable<string>) {
+  const extras = new Set(papeisExtras);
+  return async function (request: FastifyRequest, reply: FastifyReply) {
+    if (!LANCAMENTO_BETA_ATIVO) return;
+    const papel = request.user.papelCodigo;
+    if (papel === undefined || papel === "ADMIN" || (papel && extras.has(papel))) return;
+    await reply
+      .code(403)
+      .send({ message: "Este recurso está em lançamento restrito no momento." });
+  };
+}

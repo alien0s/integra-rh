@@ -94,17 +94,7 @@ apps/api/src/routes/vr.routes.ts  # endpoints HTTP
 apps/api/src/lib/usuarios.ts      # atualizarUsuario() recalcula participa_vr
 apps/api/src/scripts/test-vr.ts   # script de teste isolado (não afeta dados reais)
 
-
-# Endpoints (todos exigem `podeGerenciarVr´)
-
-apps/api/src/lib/vr.service.ts    # toda a lógica de negócio + queries
-apps/api/src/lib/vr.export.ts     # geradores de PDF/CSV/Excel
-apps/api/src/routes/vr.routes.ts  # endpoints HTTP
-apps/api/src/lib/usuarios.ts      # atualizarUsuario() recalcula participa_vr
-apps/api/src/scripts/test-vr.ts   # script de teste isolado (não afeta dados reais)
-
-
-#Endpoints (todos exigem podeGerenciarVr)
+# Endpoints (todos exigem `exigirAcessoVr`)
 
 Método	Rota	O que faz
 GET	/vr	lista os meses
@@ -122,13 +112,41 @@ DELETE	/vr/lancamentos/:id	cancela um lançamento pendente
 GET	/vr/lancamentos	todos os lançamentos, todos os meses
 GET	/vr/:vrMesId/exportar/:formato?entityId=	baixa pdf/csv/xlsx
 
-Permissão (podeGerenciarVr)
-Libera pra:
+## Permissões de acesso ao VR (quem pode ver/usar o módulo)
 
-- papelCodigo === "ADMIN"
-- setor === "Inovação"
-- setor === "Departamento Pessoal"
-(constantes no topo de vr.routes.ts — fácil de ajustar se o nome do setor mudar)
+Controlado por **papel/role** (`codigo` do catálogo `roles`, ver
+`db/migrations/004_roles.sql`), não por usuário individual. ADMIN sempre
+libera tudo (mesma convenção de `exigirPapeis` em `plugins/auth.ts` — quando
+não recebe nenhum papel extra, ainda assim inclui "ADMIN"). Além de ADMIN,
+liberados:
+
+Papel (`codigo`)	Nome	Nível	id (roles.id, referência)
+DP	Departamento Pessoal	3	3a0c6e24-904b-4d1d-a656-1047f4115307
+COORDENADOR DP	Coord. Departamento Pessoal	3	1f812a19-c1f9-4ea8-9e23-c4ac801ded42
+ASSISTENTE	Tesoureiro Assistente	4	cb122168-daed-48bf-a5b6-cc12eb715a8f
+TESOUREIRO	Tesoureiro	5	99eccdfc-a5c5-4fab-92fc-58d7785c0767
+
+A checagem em código sempre usa o `codigo` (string), nunca o `id` (UUID) — a
+tabela acima é só pra referência/auditoria de qual papel é qual. Esse mesmo
+conjunto de papéis (`PAPEIS_LIBERADOS_VR`) está duplicado em **3 lugares**
+(sem módulo compartilhado entre os deployables — mantenha os três em
+sincronia ao adicionar/remover um papel):
+
+- **Backend**: `PAPEIS_LIBERADOS_VR` + `exigirAcessoVr` no topo de
+  `apps/api/src/routes/vr.routes.ts` — aplicado a TODAS as rotas acima via
+  `onRequest`. Esta é a proteção de verdade (403 se não liberado).
+- **Frontend, rota**: `RequireVr` em
+  `apps/web/src/features/auth/components/AuthGuards.tsx` — bloqueia
+  `/vr` mesmo digitando a URL direto (redireciona pra `/home`). Só UX —
+  espelha o backend, não substitui.
+- **Frontend, sidebar**: `podeVerVr` em
+  `apps/web/src/features/app/components/AppSidebar.tsx` — decide se o item
+  "VR" aparece no menu (via a flag `somenteVr` do item).
+
+O item VR é a única entrada da sidebar/rota que fica de fora do "lançamento
+beta" (`LANCAMENTO_BETA_ATIVO`, também em `AppSidebar.tsx`/`AuthGuards.tsx`)
+que trava temporariamente as demais telas pra quem não é ADMIN — o VR usa a
+liberação por papel acima em vez do cadeado do beta.
 ## 7- FrontEnd - arquivos principais
 
 apps/web/src/features/vr/

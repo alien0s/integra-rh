@@ -1,10 +1,12 @@
 import { useState } from 'react'
-import { Palmtree, X } from 'lucide-react'
+import { Loader2, Paperclip, Palmtree, X } from 'lucide-react'
 
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
+import { toast } from '@/hooks/use-toast'
 import { ehNotificacaoDeFerias, type Notificacao } from '@/features/notificacoes/types'
+import { abrirAnexoDaNotificacao, temAnexoParaVer } from '@/features/notificacoes/lib/anexoNotificacao'
 
 interface NotificacaoActionToastProps {
   notificacao: Notificacao
@@ -34,11 +36,27 @@ export function NotificacaoActionToast({
   const [modo, setModo] = useState<'idle' | 'recusando'>('idle')
   const [motivo, setMotivo] = useState('')
   const [enviando, setEnviando] = useState(false)
+  const [abrindoAnexo, setAbrindoAnexo] = useState(false)
 
   // Card do DP (2ª etapa) confirma; card do gestor aprova.
   const rotuloAprovar = notificacao.tipo?.endsWith('_AGUARDA_DP')
     ? 'Confirmar'
     : 'Aprovar'
+
+  async function verArquivo() {
+    setAbrindoAnexo(true)
+    try {
+      await abrirAnexoDaNotificacao(notificacao)
+    } catch (erro) {
+      toast({
+        title: 'Não foi possível abrir o arquivo',
+        description: erro instanceof Error ? erro.message : undefined,
+        variant: 'destructive',
+      })
+    } finally {
+      setAbrindoAnexo(false)
+    }
+  }
 
   async function aprovar() {
     setEnviando(true)
@@ -109,6 +127,26 @@ export function NotificacaoActionToast({
           <X className="h-4 w-4" />
         </button>
       </div>
+
+      {temAnexoParaVer(notificacao) ? (
+        <Button
+          variant="link"
+          size="sm"
+          className="mt-2 h-auto gap-1.5 p-0 text-xs"
+          disabled={abrindoAnexo}
+          onClick={(e) => {
+            e.stopPropagation()
+            verArquivo()
+          }}
+        >
+          {abrindoAnexo ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <Paperclip className="h-3.5 w-3.5" />
+          )}
+          Ver arquivo
+        </Button>
+      ) : null}
 
       {/* Rodapé de ações: clique isolado — não dispara a navegação do corpo. */}
       {modo === 'idle' ? (

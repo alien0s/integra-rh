@@ -120,7 +120,7 @@ export function NavUser() {
             </SidebarMenuButton>
           </DropdownMenuTrigger>
           <DropdownMenuContent
-            className="w-(--radix-dropdown-menu-trigger-width) min-w-56 rounded-lg"
+            className="w-(--radix-dropdown-menu-trigger-width) min-w-64 rounded-lg"
             side={isMobile ? "bottom" : "right"}
             align="end"
             sideOffset={4}
@@ -151,16 +151,16 @@ export function NavUser() {
                 onValueChange={(val) => setTheme(val as "system" | "light" | "dark")}
               >
                 <TabsList className="grid w-full grid-cols-3 h-8">
-                  <TabsTrigger value="system" className="flex items-center gap-2 h-6 px-2 text-xs">
-                    <Monitor className="h-3.5 w-3.5" />
+                  <TabsTrigger value="system" className="flex items-center gap-1.5 h-6 px-1.5 text-xs">
+                    <Monitor className="h-3.5 w-3.5 shrink-0" />
                     <span className="truncate">Sistema</span>
                   </TabsTrigger>
-                  <TabsTrigger value="light" className="flex items-center gap-2 h-6 px-2 text-xs">
-                    <Sun className="h-3.5 w-3.5" />
+                  <TabsTrigger value="light" className="flex items-center gap-1.5 h-6 px-1.5 text-xs">
+                    <Sun className="h-3.5 w-3.5 shrink-0" />
                     <span className="truncate">Dia</span>
                   </TabsTrigger>
-                  <TabsTrigger value="dark" className="flex items-center gap-2 h-6 px-2 text-xs">
-                    <Moon className="h-3.5 w-3.5" />
+                  <TabsTrigger value="dark" className="flex items-center gap-1.5 h-6 px-1.5 text-xs">
+                    <Moon className="h-3.5 w-3.5 shrink-0" />
                     <span className="truncate">Noite</span>
                   </TabsTrigger>
                 </TabsList>

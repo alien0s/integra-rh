@@ -105,3 +105,84 @@ COMMENT ON COLUMN users.avatar_url IS 'Foto (Microsoft Graph, upload local ou ch
 COMMENT ON COLUMN users.codigo_aps_entidade IS 'Código APS (enrollment_code) + código da entidade (entity_code) combinados, ex.: "12345-164122". Vem do legado no 1º acesso.';
 COMMENT ON COLUMN users.codigo_aps IS 'Código de matrícula do funcionário no APS (enrollment_code), isolado. Vem do legado no 1º acesso.';
 COMMENT ON COLUMN users.tipo_funcionario IS 'Tipo de vínculo trabalhista (CLT): COLABORADOR (padrão) ou APRENDIZ/ESTAGIÁRIO. Afeta regras de férias/benefícios.';
+
+-- ──────────────────────────────────────────────────────────────────────────
+-- Row Level Security — mesma lógica dos outros módulos (ver o comentário
+-- completo em 008_ferias.sql). 5º e ÚLTIMO módulo do piloto, e o mais
+-- sensível: CPF, salário, conta bancária, data de nascimento moram aqui.
+--
+-- POR QUE 'users' FOI DEIXADA PRA ÚLTIMO: é a tabela mais referenciada do
+-- sistema — JOINs em `ferias.ts`, `notificacoes.ts`, `qualificacoes.ts`,
+-- `vr.service.ts`, `vr.export.ts`, além do próprio `usuarios.ts`. Os 4
+-- primeiros já rodam dentro de `rodaComoUsuario` (RLS de férias/
+-- qualificações/VR/comunicação) — essas transações continuam funcionando
+-- sem mudar mais nada nelas.
+--
+-- DECISÃO DELIBERADA — LEITURA (SELECT) É PERMISSIVA, NÃO É POR PAPEL:
+-- diferente de ferias_solicitacoes/qualificacoes_*, aqui a policy de leitura
+-- NÃO restringe por "dono ou papel liberado". Motivo: há JOINs legítimos
+-- onde um COLABORADOR precisa ver o NOME de OUTRA pessoa que não é ele
+-- mesmo — ex.: `GET /notificacoes` mostra "Ana aprovou sua solicitação", e
+-- `ator_nome` vem de um JOIN em `users` pela linha da Ana, não a do
+-- colaborador. Restringir SELECT a "dono ou não-colaborador" quebraria esse
+-- e outros JOINs parecidos. A proteção real contra exposição de CPF/
+-- salário/conta bancária para quem não devia já está na API
+-- (`mascararCamposSensiveis` em usuarios.ts, aplicada depois de buscar a
+-- linha) — RLS aqui não tenta replicar mascaramento por COLUNA (Postgres
+-- não faz isso nativamente via policy; precisaria de view com security
+-- barrier, fora do escopo deste piloto). Por isso a policy de SELECT é
+-- `USING (true)` sem condição nenhuma — ATENÇÃO: diferente das outras
+-- tabelas deste piloto, isso vale até SEM nenhum contexto setado (uma
+-- consulta direta via psql, ou uma rota que esqueça `rodaComoUsuario`,
+-- ainda assim lê todas as linhas). O "fecha por padrão" do FORCE só entra
+-- em jogo pra ESCRITA aqui (ver abaixo) — a leitura é intencionalmente
+-- aberta pra todo mundo autenticado pela API, igual já é hoje.
+--
+-- ESCRITA (INSERT/UPDATE/DELETE) É A PROTEÇÃO DE VERDADE AQUI: é exatamente
+-- a classe de bug já encontrada e corrigida nesta auditoria (auto-promoção
+-- a ADMIN via PATCH /usuarios/:usuarioId). Com RLS, mesmo que uma rota
+-- futura esqueça de checar o papel direito, o banco não vai aceitar a
+-- escrita de qualquer jeito.
+--   UPDATE: o próprio dono (auto-atendimento: telefone em PATCH /auth/me,
+--     avatar em POST/DELETE /usuarios/:usuarioId/avatar, e os ajustes do
+--     próprio fluxo de login — ver abaixo) OU ADMIN (edição completa de
+--     outro usuário, PATCH /usuarios/:usuarioId) OU DP/COORDENADOR DP (só
+--     liga/desliga pode_fracionar_ferias/pode_vender_ferias de qualquer
+--     colaborador — ver PATCH /ferias/excecoes/:usuarioId).
+--   INSERT/DELETE: só ADMIN — cobre importação em massa
+--     (POST /usuarios/importar), atribuir gerente (POST /usuarios/gerentes)
+--     e excluir usuário (DELETE /usuarios/:usuarioId).
+--
+-- FLUXO DE LOGIN (1º acesso): `findOrCreateUsuarioLocal`/`findOrCreateUser`
+-- (LDAP e Microsoft OAuth) e `definirSenhaUsuario` (login local) criam/
+-- atualizam a PRÓPRIA linha de quem está logando — só que isso acontece
+-- ANTES de existir um JWT (é o processo que decide quem a pessoa é), então
+-- não tem como usar o id dela em `rodaComoUsuario`. Essas rotas rodam com a
+-- identidade "de sistema" (papel ADMIN), mesma convenção do cron job de
+-- comunicação e do script test-vr.ts — ver auth.routes.ts/microsoft-oauth.ts.
+
+ALTER TABLE users ENABLE ROW LEVEL SECURITY;
+ALTER TABLE users FORCE ROW LEVEL SECURITY;
+
+CREATE POLICY users_leitura ON users
+  FOR SELECT
+  USING (true);
+
+CREATE POLICY users_criar ON users
+  FOR INSERT
+  WITH CHECK (current_setting('app.papel', true) = 'ADMIN');
+
+CREATE POLICY users_atualizar ON users
+  FOR UPDATE
+  USING (
+    id::text = current_setting('app.user_id', true)
+    OR current_setting('app.papel', true) = ANY (ARRAY['ADMIN', 'DP', 'COORDENADOR DP'])
+  )
+  WITH CHECK (
+    id::text = current_setting('app.user_id', true)
+    OR current_setting('app.papel', true) = ANY (ARRAY['ADMIN', 'DP', 'COORDENADOR DP'])
+  );
+
+CREATE POLICY users_excluir ON users
+  FOR DELETE
+  USING (current_setting('app.papel', true) = 'ADMIN');

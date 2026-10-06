@@ -81,4 +81,97 @@ COMMENT ON COLUMN ferias_solicitacoes.status IS 'PENDENTE, APROVADO ou RECUSADO 
 COMMENT ON COLUMN ferias_solicitacoes.motivo_recusa IS 'Justificativa obrigatória quando RECUSADO.';
 COMMENT ON COLUMN ferias_solicitacoes.aprovado_por IS 'Quem aprovou/recusou (FK users). E-mail/nome via JOIN.';
 COMMENT ON COLUMN ferias_solicitacoes.confirmado IS 'Confirmação (binário) da aprovação/efetivação.';
-COMMENT ON COLUMN ferias_solicitacoes.periodo_aquisitivo_inicio IS 'Início do ciclo aquisitivo de referência (histórico).
+COMMENT ON COLUMN ferias_solicitacoes.periodo_aquisitivo_inicio IS 'Início do ciclo aquisitivo de referência (histórico).';
+
+-- ──────────────────────────────────────────────────────────────────────────
+-- Row Level Security — segunda camada de autorização DENTRO do banco,
+-- independente da API (que conecta sempre como `erpuser`, a mesma role pra
+-- todo mundo — o Postgres não sabe sozinho "quem" está logado no site).
+--
+-- CONTEXTO: se a API tiver um bug de autorização — já aconteceu, ver a
+-- correção de PATCH /usuarios/:usuarioId na auditoria de segurança de
+-- 2026-09 — sem RLS não existe nenhuma trava no banco pra conter o estrago.
+-- `ferias_solicitacoes` foi a 1ª tabela a ganhar isso (piloto): é isolada,
+-- só `apps/api/src/lib/ferias.ts` e um JOIN pontual em
+-- `apps/api/src/lib/notificacoes.ts` (pra saber se uma notificação de
+-- férias ainda está acionável) a tocam.
+--
+-- COMO FUNCIONA NA PRÁTICA: a API abre uma TRANSAÇÃO por requisição nas
+-- rotas que tocam esta tabela e roda `set_config('app.user_id', ..., true)`
+-- / `set_config('app.papel', ..., true)` com os dados do usuário
+-- autenticado (JWT) logo no início — ver `rodaComoUsuario` em
+-- apps/api/src/lib/database.ts, usado em TODO handler de
+-- apps/api/src/routes/ferias.routes.ts e no `GET /notificacoes` de
+-- notificacoes.routes.ts. As policies abaixo leem esses dois valores com
+-- `current_setting(..., true)` — o `true` faz devolver NULL (em vez de dar
+-- erro) quando não foi setado, e NULL nunca bate com nada, então a ausência
+-- de contexto fecha o acesso por padrão, nunca abre.
+--
+-- AVISO OPERACIONAL: uma consulta manual via psql direto (`erpuser`, sem
+-- passar pela API) não verá NENHUMA linha desta tabela por padrão — é o
+-- comportamento correto (fechado por padrão). Pra depurar manualmente:
+--   SET app.papel = 'ADMIN';
+--
+-- ESCOPO — isto é uma REDE DE SEGURANÇA, não uma reimplementação fiel de
+-- toda regra fina de negócio da API. Ex.: aqui um GESTOR enxerga TODAS as
+-- solicitações, não só as da própria equipe — essa regra mais fina continua
+-- sendo aplicada só pela API (ver listSolicitacoesEquipe em lib/ferias.ts).
+-- O objetivo é impedir que um papel SEM nenhuma função em Férias
+-- (COLABORADOR, ou qualquer papel novo que apareça no futuro) leia ou
+-- altere a solicitação de outra pessoa, mesmo que uma rota futura esqueça
+-- de checar isso.
+
+ALTER TABLE ferias_solicitacoes ENABLE ROW LEVEL SECURITY;
+
+-- IMPORTANTE: por padrão, o Postgres ISENTA o DONO da tabela do RLS (regra
+-- dele, não de rolbypassrls) — e `erpuser` é o dono (criou a tabela via
+-- estas migrations). Sem o FORCE abaixo, ENABLE sozinho não faria NADA pra
+-- conexão da API, que usa sempre essa mesma role. FORCE fecha essa brecha.
+ALTER TABLE ferias_solicitacoes FORCE ROW LEVEL SECURITY;
+
+-- Sem nenhuma policy, o acesso já fica negado por padrão (inclusive pro
+-- dono, agora que FORCE está ligado) — as policies abaixo é que ABREM os
+-- casos válidos.
+
+-- Papéis com acesso amplo (além do próprio dono), espelhando quem hoje tem
+-- visão ampla na API — ver apps/api/src/routes/ferias.routes.ts:
+--   GESTOR        — aprova a 1ª etapa (vê a lista geral e a "da equipe").
+--   DP/COORDENADOR DP/RH — confirmam a 2ª etapa e têm a "visão geral".
+--   ADMIN         — sempre passa (mesma convenção de exigirPapeis()).
+CREATE POLICY ferias_leitura ON ferias_solicitacoes
+  FOR SELECT
+  USING (
+    user_id::text = current_setting('app.user_id', true)
+    OR current_setting('app.papel', true) = ANY (ARRAY['ADMIN', 'GESTOR', 'DP', 'COORDENADOR DP', 'RH'])
+  );
+
+-- Criar: autoatendimento (o próprio colaborador solicitando), ou
+-- DP/COORDENADOR DP/RH/ADMIN registrando manualmente em nome de alguém
+-- (ver registrarFeriasManual em lib/ferias.ts).
+CREATE POLICY ferias_criar ON ferias_solicitacoes
+  FOR INSERT
+  WITH CHECK (
+    user_id::text = current_setting('app.user_id', true)
+    OR current_setting('app.papel', true) = ANY (ARRAY['ADMIN', 'DP', 'COORDENADOR DP', 'RH'])
+  );
+
+-- Atualizar (aprovar/recusar/confirmar/cancelar/sugerir ajuste/aceitar
+-- ajuste): mesmo conjunto da leitura — quem decide sobre a solicitação quase
+-- sempre não é o próprio dono.
+CREATE POLICY ferias_atualizar ON ferias_solicitacoes
+  FOR UPDATE
+  USING (
+    user_id::text = current_setting('app.user_id', true)
+    OR current_setting('app.papel', true) = ANY (ARRAY['ADMIN', 'GESTOR', 'DP', 'COORDENADOR DP', 'RH'])
+  )
+  WITH CHECK (
+    user_id::text = current_setting('app.user_id', true)
+    OR current_setting('app.papel', true) = ANY (ARRAY['ADMIN', 'GESTOR', 'DP', 'COORDENADOR DP', 'RH'])
+  );
+
+-- Excluir: só o próprio dono — a API também exige status = CANCELADO antes
+-- (ver excluirSolicitacao em lib/ferias.ts); RLS não replica essa parte, só
+-- decide QUEM pode mexer na linha, não em qual status ela está.
+CREATE POLICY ferias_excluir ON ferias_solicitacoes
+  FOR DELETE
+  USING (user_id::text = current_setting('app.user_id', true));

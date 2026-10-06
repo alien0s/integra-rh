@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState, type ComponentProps } from 'react'
 import type { DateRange } from 'react-day-picker'
 import {
   addDays,
@@ -16,17 +16,20 @@ import { ptBR } from 'date-fns/locale'
 import { Eraser } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
-import { Calendar } from '@/components/ui/calendar'
+import { Calendar, CalendarDayButton } from '@/components/ui/calendar'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { usePreferenciaFerias30 } from '@/lib/preferencias'
+import { rotuloTipoFeriado } from '@/features/ferias/constants'
 import {
   feriadosService,
   type CriarSolicitacaoInput,
 } from '@/features/ferias/services'
+import type { Feriado } from '@/features/ferias/types'
 
 type TipoSolicitacao = 'ferias' | 'folga'
 
@@ -45,17 +48,28 @@ interface NovaSolicitacaoFormProps {
    */
   temFeriasAprovadaNoCiclo?: boolean
   /**
-   * Exceções liberadas pelo DP (aba "Exceções") — opcionais, nunca
-   * obrigatórias: quem tem `podeFracionarFerias` continua podendo pedir um
-   * período único de até 30 dias, como quem não tem.
+   * Exceção liberada pelo DP (aba "Exceções"): quem tem `podeFracionarFerias`
+   * só pede 10 ou 15 dias por vez no calendário (nunca mais os 30 corridos —
+   * cada solicitação é uma das 2 levas do fracionamento).
    */
   podeFracionarFerias?: boolean
   /** Libera o campo de dias a vender (abono), 0-10. */
   podeVenderFerias?: boolean
+  /**
+   * A entidade do colaborador exige o período completo de 30 dias corridos
+   * (hoje: grupo ACeAm — ver GRUPOS_EXIGEM_TRINTA_DIAS em
+   * apps/api/src/lib/ferias.ts) — trava a duração no calendário, igual
+   * `podeFracionarFerias`, mas SEM opção de período livre mais curto.
+   */
+  exigeTrintaDias?: boolean
 }
 
 /** Duração padrão de férias em dias corridos (usada no preenchimento automático). */
 const DIAS_FERIAS = 30
+
+/** Duração de cada período ao fracionar (espelha DIAS_FRACIONAMENTO_MIN/MAX em apps/api/src/lib/ferias.ts). */
+const DURACOES_FRACIONAMENTO = [10, 15] as const
+type DuracaoFracionamento = (typeof DURACOES_FRACIONAMENTO)[number]
 
 /**
  * Antecedência mínima (em dias) para solicitar FÉRIAS, contada a partir de
@@ -109,6 +123,7 @@ export function NovaSolicitacaoForm({
   temFeriasAprovadaNoCiclo = false,
   podeFracionarFerias = false,
   podeVenderFerias = false,
+  exigeTrintaDias = false,
 }: NovaSolicitacaoFormProps) {
   const [tipo, setTipo] = useState<TipoSolicitacao>('ferias')
   const [periodo, setPeriodo] = useState<DateRange | undefined>()
@@ -119,9 +134,26 @@ export function NovaSolicitacaoForm({
   const [enviando, setEnviando] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
   const [auto30] = usePreferenciaFerias30()
-  // Feriados (ano atual + próximo) para bloquear o início das férias.
-  const [feriadoSet, setFeriadoSet] = useState<Set<string>>(new Set())
-  const [feriadoDates, setFeriadoDates] = useState<Date[]>([])
+  // Duração escolhida no seletor "Fracionar em" — tem prioridade sobre o
+  // auto30. Quem PODE fracionar não escolhe mais 30 dias no calendário: o
+  // efeito abaixo garante que sempre começa em 10 (1ª opção) assim que
+  // `podeFracionarFerias` chega como true, nunca fica "sem escolher" (o que
+  // antes caía de volta pra 30 — ver DURACOES_FRACIONAMENTO).
+  const [fracionarDuracao, setFracionarDuracao] = useState<DuracaoFracionamento | null>(null)
+
+  useEffect(() => {
+    if (podeFracionarFerias && fracionarDuracao === null) {
+      setFracionarDuracao(DURACOES_FRACIONAMENTO[0])
+    }
+  }, [podeFracionarFerias, fracionarDuracao])
+
+  // Duração sempre fixa (10/15 pra quem fraciona, 30 pra quem é de um grupo
+  // que exige o período completo — ex.: ACeAm, ver exigeTrintaDias) — nunca
+  // deixa selecionar um período livre mais curto/mais longo.
+  const duracaoFixa = podeFracionarFerias || exigeTrintaDias
+  // Feriados (ano atual + próximo) para bloquear o início das férias e
+  // mostrar o tooltip com nome/tipo no calendário (igual FeriadosAdmin.tsx).
+  const [feriados, setFeriados] = useState<Feriado[]>([])
 
   useEffect(() => {
     let ativo = true
@@ -131,16 +163,7 @@ export function NovaSolicitacaoForm({
       feriadosService.listar(anoAtual + 1),
     ])
       .then((listas) => {
-        if (!ativo) return
-        const todos = listas.flat()
-        setFeriadoSet(new Set(todos.map((f) => f.data)))
-        // "YYYY-MM-DD" → Date local (evita susto de fuso).
-        setFeriadoDates(
-          todos.map((f) => {
-            const [a, m, d] = f.data.split('-').map(Number)
-            return new Date(a, m - 1, d)
-          }),
-        )
+        if (ativo) setFeriados(listas.flat())
       })
       .catch(() => {
         /* sem feriados carregados: o backend ainda valida no envio */
@@ -149,6 +172,45 @@ export function NovaSolicitacaoForm({
       ativo = false
     }
   }, [])
+
+  // "YYYY-MM-DD" → Date local (evita susto de fuso) + índice por data (pro
+  // tooltip achar o feriado de um dia) — derivados de `feriados`.
+  const { feriadoSet, feriadoDates, feriadoPorData } = useMemo(() => {
+    const mapa = new Map<string, Feriado>()
+    const datas: Date[] = []
+    for (const f of feriados) {
+      mapa.set(f.data, f)
+      const [a, m, d] = f.data.split('-').map(Number)
+      datas.push(new Date(a, m - 1, d))
+    }
+    return {
+      feriadoSet: new Set(feriados.map((f) => f.data)),
+      feriadoDates: datas,
+      feriadoPorData: mapa,
+    }
+  }, [feriados])
+
+  // DayButton customizado: nos dias de feriado, envolve o botão do dia num
+  // tooltip (hover) com o nome e o tipo — igual o calendário de
+  // FeriadosAdmin.tsx (aba "Feriados" do DP). Nos demais dias, usa o botão
+  // padrão. Memoizado por `feriadoPorData` para não recriar a cada render.
+  const DiaComTooltip = useMemo(() => {
+    return function DiaComTooltip(
+      props: ComponentProps<typeof CalendarDayButton>,
+    ) {
+      const f = feriadoPorData.get(format(props.day.date, 'yyyy-MM-dd'))
+      const botao = <CalendarDayButton {...props} locale={ptBR} />
+      if (!f) return botao
+      return (
+        <Tooltip className="w-full">
+          <TooltipTrigger>{botao}</TooltipTrigger>
+          <TooltipContent>
+            {f.nome} · {rotuloTipoFeriado(f.tipo)}
+          </TooltipContent>
+        </Tooltip>
+      )
+    }
+  }, [feriadoPorData])
 
   /** É um feriado cadastrado (bloqueia o início das férias). */
   function ehFeriado(data: Date): boolean {
@@ -188,19 +250,29 @@ export function NovaSolicitacaoForm({
     !bloqueadoPorPendencia &&
     Boolean(periodo?.from && periodo?.to && antecedenciaFeriasValida(periodo.from))
 
-  // Preenche 30 dias automaticamente ao escolher o início (só férias e se ligado
-  // nas Configurações). Retorna o término a usar, ou o padrão informado.
+  // Preenche a duração automaticamente ao escolher o início (só férias).
+  // Quem PODE fracionar tem duração sempre fixa em 10 ou 15 (a aba
+  // "Fracionar em" sempre tem uma selecionada — ver o efeito acima que
+  // defaulta pra 10 — nunca mais caindo nos 30 corridos); é isso que fecha o
+  // buraco de dar pra marcar um período fora da faixa 10-15 exigida pelo
+  // backend. Quem exige os 30 completos (exigeTrintaDias) também tem duração
+  // fixa, mas sempre 30. Quem não tem nenhuma das duas exceções segue como
+  // sempre (auto30).
   function terminoAutomatico(inicio: Date, padrao?: Date): Date | undefined {
-    if (auto30 && tipo === 'ferias') {
-      return addDays(inicio, DIAS_FERIAS - 1)
-    }
+    if (tipo !== 'ferias') return padrao
+    if (duracaoFixa) return addDays(inicio, (fracionarDuracao ?? DIAS_FERIAS) - 1)
+    if (auto30) return addDays(inicio, DIAS_FERIAS - 1)
     return padrao
   }
 
-  /** Limita o término a no máximo 30 dias de férias (inclusive). */
+  /**
+   * Limita o término ao teto de dias corridos: a duração escolhida em
+   * "Fracionar em" (10/15 — sempre tem uma, pra quem pode fracionar), ou 30
+   * dias pra quem exige o período completo (exigeTrintaDias).
+   */
   function limitarTermino(inicio: Date, fim: Date): Date {
     if (tipo !== 'ferias') return fim
-    const maximo = addDays(inicio, DIAS_FERIAS - 1)
+    const maximo = addDays(inicio, (fracionarDuracao ?? DIAS_FERIAS) - 1)
     return isBefore(maximo, fim) ? maximo : fim
   }
 
@@ -232,17 +304,24 @@ export function NovaSolicitacaoForm({
   function handleSelect(range: DateRange | undefined) {
     if (range?.from && inicioInvalido(range.from)) return
 
-    // Ao escolher só o início (1º clique = to ausente ou igual ao from),
-    // preenche 30 dias se a preferência estiver ligada. O 2º clique (término
-    // diferente) é respeitado, mas limitado a 30 dias.
     let novo = range
-    const soInicio =
-      range?.from && (!range.to || isSameDay(range.from, range.to))
-    if (soInicio && range?.from) {
-      const to = terminoAutomatico(range.from)
-      if (to) novo = { from: range.from, to }
-    } else if (range?.from && range?.to) {
-      novo = { from: range.from, to: limitarTermino(range.from, range.to) }
+    if (tipo === 'ferias' && duracaoFixa && range?.from) {
+      // Duração sempre fixa (10/15 pra quem fraciona, 30 pra quem exige o
+      // período completo) — ignora o 2º clique do calendário (que tentaria
+      // um término livre) e força sempre a duração efetiva.
+      novo = { from: range.from, to: terminoAutomatico(range.from) }
+    } else {
+      // Ao escolher só o início (1º clique = to ausente ou igual ao from),
+      // preenche 30 dias se a preferência estiver ligada. O 2º clique
+      // (término diferente) é respeitado, mas limitado a 30 dias.
+      const soInicio =
+        range?.from && (!range.to || isSameDay(range.from, range.to))
+      if (soInicio && range?.from) {
+        const to = terminoAutomatico(range.from)
+        if (to) novo = { from: range.from, to }
+      } else if (range?.from && range?.to) {
+        novo = { from: range.from, to: limitarTermino(range.from, range.to) }
+      }
     }
 
     setPeriodo(novo)
@@ -257,6 +336,14 @@ export function NovaSolicitacaoForm({
 
     const data = parseData(texto)
     if (!data || inicioInvalido(data)) return
+
+    if (tipo === 'ferias' && duracaoFixa) {
+      // Duração sempre fixa — não mantém um término antigo, recalcula sempre.
+      const to = terminoAutomatico(data)
+      setPeriodo({ from: data, to })
+      setTerminoText(formatarData(to))
+      return
+    }
 
     // Mantém o término só se continuar depois do novo início; senão, aplica o
     // preenchimento automático de 30 dias (se ligado).
@@ -290,6 +377,7 @@ export function NovaSolicitacaoForm({
    */
   function handleTipoChange(novoTipo: TipoSolicitacao) {
     setTipo(novoTipo)
+    if (novoTipo !== 'ferias') setFracionarDuracao(null)
     if (novoTipo === 'ferias' && periodo?.from) {
       const aindaValido =
         !diaInicioProibido(periodo.from) &&
@@ -335,7 +423,7 @@ export function NovaSolicitacaoForm({
 
   return (
     <Card className="shadow-none">
-      <CardHeader className="pb-3">
+      <CardHeader className="flex-row items-center justify-between pb-3">
         <Tabs value={tipo} onValueChange={(v) => handleTipoChange(v as TipoSolicitacao)}>
           <TabsList className="h-9">
             <TabsTrigger value="ferias" className="px-5">
@@ -346,6 +434,28 @@ export function NovaSolicitacaoForm({
             </TabsTrigger>
           </TabsList>
         </Tabs>
+
+        {/* Só quem tem a exceção de fracionamento (DP libera em "Exceções") e só
+            na aba Férias — Folga não fraciona. Escolher 10/15 aqui trava a
+            duração no calendário/inputs (ver terminoAutomatico/limitarTermino),
+            evitando um período fora da faixa 10-15 exigida pelo backend. */}
+        {tipo === 'ferias' && podeFracionarFerias && (
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-muted-foreground">Fracionar em</span>
+            <Tabs
+              value={fracionarDuracao ? String(fracionarDuracao) : ''}
+              onValueChange={(v) => setFracionarDuracao(Number(v) as DuracaoFracionamento)}
+            >
+              <TabsList className="h-9">
+                {DURACOES_FRACIONAMENTO.map((dias) => (
+                  <TabsTrigger key={dias} value={String(dias)} className="px-4">
+                    {dias} dias
+                  </TabsTrigger>
+                ))}
+              </TabsList>
+            </Tabs>
+          </div>
+        )}
       </CardHeader>
       <CardContent className="pt-5">
         <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
@@ -381,6 +491,8 @@ export function NovaSolicitacaoForm({
                     ? [{ before: primeiraDataPermitidaFerias }, ...feriadoOuVesperaDates]
                     : { before: hoje }
                 }
+                // DayButton com tooltip nos feriados — igual FeriadosAdmin.tsx.
+                components={{ DayButton: DiaComTooltip }}
                 className="w-full"
               />
             </div>
@@ -391,12 +503,6 @@ export function NovaSolicitacaoForm({
               <p className="text-xs text-muted-foreground">
                 O início das férias não pode ser sexta, sábado, domingo, feriado
                 ou a véspera de um feriado.
-              </p>
-            )}
-            {tipo === 'ferias' && podeFracionarFerias && (
-              <p className="text-xs text-muted-foreground">
-                Você pode dividir suas férias em até 2 períodos de 10 a 15 dias
-                cada, somando no máximo 30 dias no ciclo.
               </p>
             )}
           </div>
@@ -422,6 +528,10 @@ export function NovaSolicitacaoForm({
                   value={terminoText}
                   inputMode="numeric"
                   maxLength={10}
+                  // Quem pode fracionar tem duração sempre fixa (30, ou
+                  // 10/15 se escolheu a aba) — o término é só derivado do
+                  // início, não dá pra digitar um período diferente.
+                  readOnly={tipo === 'ferias' && duracaoFixa}
                   onChange={(e) => handleTerminoChange(e.target.value)}
                   placeholder="dd/mm/aaaa"
                 />

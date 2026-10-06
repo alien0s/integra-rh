@@ -1,4 +1,4 @@
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyRequest } from "fastify";
 
 import {
   buscarRegistrosParaExportacao,
@@ -8,23 +8,33 @@ import {
   gerarRelatorioVrPdf,
 } from "../lib/vr.export.js";
 import {
+  AcessoMesVrNegadoError,
   buscarVrMesDetalhado,
   cancelarLancamento,
   criarLancamentosEmLote,
   criarVrMes,
   editarVrMes,
   EntidadeFechadaNaoAceitaLancamentoError,
+  EntidadeForaDoGrupoError,
   EntidadeJaFechadaError,
   EntidadeNaoParticipaVrError,
   fecharVrPorEntidade,
+  garantirAcessoAoLancamento,
+  garantirAcessoAoMes,
+  GrupoVrInvalidoError,
+  grupoDoEscopo,
+  LancamentoForaDoGrupoError,
   LancamentoJaAplicadoError,
   listarColaboradoresParaSelecao,
   listarEntidades,
+  listarGruposVr,
   listarLancamentosDoMes,
   listarStatusFechamentoPorEntidade,
   listarTodosLancamentos,
   listarVrMeses,
   preVisualizarFechamento,
+  resolverEscopoVr,
+  SemGrupoVrError,
   VrMesJaExisteError,
   VrMesAbertoExistenteError,
   VrMesJaFechadoError,
@@ -34,6 +44,7 @@ import {
   type CriarVrMesInput,
   type EditarVrMesInput,
   type EntidadeOpcao,
+  type EscopoVr,
   type FechamentoVrResultado,
   type LancamentoVr,
   type LancamentoVrDetalhado,
@@ -54,7 +65,7 @@ import type { ApiListResponse, ApiResponse } from "../types/api.js";
  */
 const SETOR_INOVACAO = "Inovação";
 const SETOR_GESTAO_DE_PESSOAS = "Departamento Pessoal";
-const PAPEIS_QUEM_PODEM_GERENCIAR_VR = new Set(["TESOUREIRO", "ASSISTENTE", "COORDENADOR_DP"]);
+const PAPEIS_QUE_PODEM_GERENCIAR_VR = new Set(["TESOUREIRO", "ASSISTENTE", "COORDENADOR_DP"]);
 
 function podeGerenciarVr(user: {
   papelCodigo?: string | null;
@@ -63,7 +74,7 @@ function podeGerenciarVr(user: {
   if (user.papelCodigo === "ADMIN") return true;
   if (user.setor === SETOR_INOVACAO) return true;
   if (user.setor === SETOR_GESTAO_DE_PESSOAS) return true;
-  if (user.papelCodigo && PAPEIS_QUEM_PODEM_GERENCIAR_VR.has(user.papelCodigo)) return true;
+  if (user.papelCodigo && PAPEIS_QUE_PODEM_GERENCIAR_VR.has(user.papelCodigo)) return true;
   return false;
 }
 
@@ -77,6 +88,55 @@ type FormatoExportacao = (typeof FORMATOS_EXPORTACAO)[number];
  * Restrito a ADMIN / setor Inovação / setor Departamento Pessoal.
  */
 export async function vrRoutes(app: FastifyInstance) {
+  /* ── Escopo por grupo (campo) ────────────────────────────────────────── */
+  // Cada grupo (ACeAm, ANRA...) tem o seu mês de VR. ADMIN enxerga todos; os
+  // demais, só o grupo da PRÓPRIA entidade. Esse hook roda em TODA rota do
+  // VR (depois do authenticate): resolve o escopo da pessoa e, se a rota tem
+  // :vrMesId, barra mês de outro grupo antes de o handler executar.
+  const escoposPorRequisicao = new WeakMap<object, EscopoVr>();
+  const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+  function escopoDe(request: FastifyRequest): EscopoVr {
+    return escoposPorRequisicao.get(request) ?? { admin: false, grupo: null };
+  }
+
+  app.addHook("preHandler", async (request, reply) => {
+    const escopo = await resolverEscopoVr(request.user);
+    escoposPorRequisicao.set(request, escopo);
+
+    const vrMesId = (request.params as { vrMesId?: string } | undefined)?.vrMesId;
+    if (!vrMesId) return;
+    if (!UUID.test(vrMesId)) {
+      return reply.code(404).send({ message: "Mês de VR não encontrado." });
+    }
+    try {
+      await garantirAcessoAoMes(vrMesId, escopo);
+    } catch (error) {
+      if (error instanceof VrMesNaoEncontradoError) {
+        return reply.code(404).send({ message: "Mês de VR não encontrado." });
+      }
+      if (error instanceof AcessoMesVrNegadoError || error instanceof SemGrupoVrError) {
+        return reply.code(403).send({ message: error.message });
+      }
+      throw error;
+    }
+  });
+
+  // Escopo da pessoa logada (grupo + grupos disponíveis) — o front usa pra
+  // decidir se mostra o seletor de grupo no cadastro de mês (só ADMIN).
+  app.get<{ Reply: ApiResponse<{ admin: boolean; grupo: string | null; grupos: string[] }> }>(
+    "/vr/escopo",
+    {
+      onRequest: [app.authenticate],
+      schema: { tags: ["VR"], summary: "Escopo (grupo) da pessoa logada no VR" },
+    },
+    async (request) => {
+      const escopo = escopoDe(request);
+      const grupos = await listarGruposVr(grupoDoEscopo(escopo));
+      return { data: { admin: escopo.admin, grupo: escopo.grupo, grupos } };
+    },
+  );
+
   /* ── Leitura ─────────────────────────────────────────────────────────── */
 
   // Lista TODOS os lançamentos (todos os meses) — visão geral aplicado/pendente.
@@ -90,7 +150,7 @@ export async function vrRoutes(app: FastifyInstance) {
       if (!podeGerenciarVr(request.user)) {
         return reply.code(403).send({ message: "Sem permissão para ver os lançamentos de VR." });
       }
-      const lancamentos = await listarTodosLancamentos();
+      const lancamentos = await listarTodosLancamentos(grupoDoEscopo(escopoDe(request)));
       return { data: lancamentos, total: lancamentos.length };
     },
   );
@@ -125,7 +185,7 @@ export async function vrRoutes(app: FastifyInstance) {
       }
 
       const { busca, mes, ano, tipo, status } = request.query;
-      const todos = await listarTodosLancamentos();
+      const todos = await listarTodosLancamentos(grupoDoEscopo(escopoDe(request)));
 
       const filtrados = todos.filter((l) => {
         if (busca && !l.userNome.toLowerCase().includes(busca.toLowerCase())) return false;
@@ -155,7 +215,7 @@ export async function vrRoutes(app: FastifyInstance) {
       if (!podeGerenciarVr(request.user)) {
         return reply.code(403).send({ message: "Sem permissão para ver as entidades do VR." });
       }
-      const entidades = await listarEntidades();
+      const entidades = await listarEntidades(grupoDoEscopo(escopoDe(request)));
       return { data: entidades, total: entidades.length };
     },
   );
@@ -164,7 +224,9 @@ export async function vrRoutes(app: FastifyInstance) {
   // ?entityId=... restringe a 1 entidade.
   app.get<{
     Querystring: { entityId?: string };
-    Reply: ApiListResponse<{ id: string; nome: string; entityId: string }> | { message: string };
+    Reply:
+      | ApiListResponse<{ id: string; nome: string; entityId: string; entityGrupo: string | null }>
+      | { message: string };
   }>(
     "/vr/colaboradores",
     {
@@ -183,7 +245,10 @@ export async function vrRoutes(app: FastifyInstance) {
       if (!podeGerenciarVr(request.user)) {
         return reply.code(403).send({ message: "Sem permissão para ver os colaboradores do VR." });
       }
-      const colaboradores = await listarColaboradoresParaSelecao(request.query.entityId);
+      const colaboradores = await listarColaboradoresParaSelecao(
+        request.query.entityId,
+        grupoDoEscopo(escopoDe(request)),
+      );
       return { data: colaboradores, total: colaboradores.length };
     },
   );
@@ -195,8 +260,8 @@ export async function vrRoutes(app: FastifyInstance) {
       onRequest: [app.authenticate],
       schema: { tags: ["VR"], summary: "Lista os meses de Vale-Refeição cadastrados" },
     },
-    async () => {
-      const meses = await listarVrMeses();
+    async (request) => {
+      const meses = await listarVrMeses(grupoDoEscopo(escopoDe(request)));
       return { data: meses, total: meses.length };
     },
   );
@@ -247,7 +312,7 @@ export async function vrRoutes(app: FastifyInstance) {
 
   // Cadastra um novo mês (valores diários + dias elegíveis marcados no calendário).
   app.post<{
-    Body: CriarVrMesInput;
+    Body: Omit<CriarVrMesInput, "grupo"> & { grupo?: string };
     Reply: ApiResponse<VrMesResumo> | { message: string };
   }>(
     "/vr",
@@ -260,6 +325,7 @@ export async function vrRoutes(app: FastifyInstance) {
           type: "object",
           required: ["mes", "ano", "valorDiario", "valorDiarioAprendiz", "diasElegiveis"],
           properties: {
+            grupo: { type: "string" },
             mes: { type: "integer", minimum: 1, maximum: 12 },
             ano: { type: "integer", minimum: 2000 },
             valorDiario: { type: "number", minimum: 0 },
@@ -276,9 +342,25 @@ export async function vrRoutes(app: FastifyInstance) {
       }
 
       try {
-        const criado = await criarVrMes(request.body);
+        const escopo = escopoDe(request);
+        let grupo: string;
+        if (escopo.admin) {
+          if (!request.body.grupo) {
+            return reply.code(400).send({ message: "Informe o grupo do mês." });
+          }
+          grupo = request.body.grupo;
+        } else {
+          if (!escopo.grupo) {
+            return reply.code(403).send({ message: new SemGrupoVrError().message });
+          }
+          grupo = escopo.grupo; // não-admin só cria mês do próprio grupo
+        }
+        const criado = await criarVrMes({ ...request.body, grupo });
         return reply.code(201).send({ data: criado });
       } catch (error) {
+        if (error instanceof GrupoVrInvalidoError) {
+          return reply.code(400).send({ message: error.message });
+        }
         if (error instanceof VrMesJaExisteError) {
           return reply.code(409).send({ message: error.message });
         }
@@ -424,6 +506,9 @@ export async function vrRoutes(app: FastifyInstance) {
         );
         return { data: criados, total: criados.length };
       } catch (error) {
+        if (error instanceof LancamentoForaDoGrupoError) {
+          return reply.code(400).send({ message: error.message });
+        }
         if (error instanceof EntidadeFechadaNaoAceitaLancamentoError) {
           return reply.code(409).send({ message: error.message });
         }
@@ -448,9 +533,13 @@ export async function vrRoutes(app: FastifyInstance) {
       }
 
       try {
+        await garantirAcessoAoLancamento(request.params.id, escopoDe(request));
         await cancelarLancamento(request.params.id);
         return reply.code(204).send(undefined);
       } catch (error) {
+        if (error instanceof AcessoMesVrNegadoError) {
+          return reply.code(403).send({ message: error.message });
+        }
         if (error instanceof LancamentoJaAplicadoError) {
           return reply.code(409).send({ message: error.message });
         }
@@ -525,6 +614,9 @@ export async function vrRoutes(app: FastifyInstance) {
       } catch (error) {
         if (error instanceof VrMesNaoEncontradoError) {
           return reply.code(404).send({ message: error.message });
+        }
+        if (error instanceof EntidadeForaDoGrupoError) {
+          return reply.code(400).send({ message: error.message });
         }
         if (error instanceof EntidadeJaFechadaError) {
           return reply.code(409).send({ message: error.message });

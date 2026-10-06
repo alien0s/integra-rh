@@ -6,9 +6,16 @@ interface VrMesListProps {
   colaboradores: ColaboradorOpcao[]
   entidades: EntidadeOpcao[]
   onAtualizado: () => Promise<void>
+  mostrarGrupo?: boolean
 }
 
-export function VrMesList({ meses, colaboradores, entidades, onAtualizado }: VrMesListProps) {
+export function VrMesList({
+  meses,
+  colaboradores,
+  entidades,
+  onAtualizado,
+  mostrarGrupo = false,
+}: VrMesListProps) {
   if (meses.length === 0) {
     return (
       <p className="py-8 text-center text-sm text-muted-foreground">
@@ -26,6 +33,7 @@ export function VrMesList({ meses, colaboradores, entidades, onAtualizado }: VrM
           colaboradores={colaboradores}
           entidades={entidades}
           onAtualizado={onAtualizado}
+          mostrarGrupo={mostrarGrupo}
         />
       ))}
     </div>

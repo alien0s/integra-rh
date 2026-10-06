@@ -25,7 +25,7 @@ import type {
   Usuario,
 } from '@/features/usuarios/types'
 import type { Papel } from '@/features/tabelas/types'
-import { mascararCpf, mascararTelefone } from '@/lib/masks'
+import { mascararTelefone } from '@/lib/masks'
 
 interface EditarUsuarioModalProps {
   /** Usuário em edição (null quando o modal está fechado). */
@@ -38,7 +38,7 @@ interface EditarUsuarioModalProps {
   /** Indica que o salvamento está em andamento. */
   isSaving?: boolean
   /**
-   * Restringe a edição a CPF/telefone — usado quando o COLABORADOR edita o
+   * Restringe a edição a telefone — usado quando o COLABORADOR edita o
    * próprio perfil (em "Meu perfil"): entidade/setor/função/papel exigem o
    * RH/DP, então nem aparecem aqui (também não seria aceito pela API nesse
    * caso — ver PATCH /usuarios/:id).
@@ -51,7 +51,6 @@ interface EditarUsuarioModalProps {
 /** Estado do formulário de edição. */
 interface FormState {
   entidadeId: string
-  cpf: string
   telefone: string
   setorId: string
   funcaoId: string
@@ -64,9 +63,23 @@ function idPorNome(opcoes: OpcaoSelecao[], nome: string): string {
 }
 
 /**
- * Modal de edição das informações do usuário (entidade, cpf, telefone,
- * setor e função). O botão Salvar só habilita quando há alteração no
- * formulário.
+ * Modal de edição das informações do usuário (entidade, telefone, setor e
+ * função). O botão Salvar só habilita quando há alteração no formulário.
+ *
+ * CPF não é editável aqui de propósito: vem só do sistema legado da empresa
+ * (buscarFuncionarioLegado, apps/api/src/lib/mssql.ts) — se estiver errado,
+ * o conserto é lá, não neste app (ver lib/usuarios.ts:
+ * inserirUsuarioComLegado/preencherDadosLegadoSeVazio, os únicos lugares que
+ * ainda escrevem cpf).
+ *
+ * Este componente não decide QUEM pode abri-lo — ele só renderiza quando o
+ * pai passa um `usuario` (ver a prop). Quem abre o gatilho ("Editar") é
+ * `UsuarioPerfilHeader.tsx`/`UsuarioPerfilConteudo.tsx` (perfil de alguém) e
+ * `UsuariosTable.tsx` (lista) — ambos condicionam a exibição do botão a
+ * `podeEditarUsuario` (features/usuarios/lib/permissoes.ts): por enquanto só
+ * ADMIN, e nunca sobre o próprio usuário logado (exceto o fluxo separado
+ * `apenasContato`, que é o COLABORADOR editando o próprio telefone em
+ * "Meu perfil" — não é afetado por essa regra).
  */
 export function EditarUsuarioModal({
   usuario,
@@ -81,7 +94,6 @@ export function EditarUsuarioModal({
 }: EditarUsuarioModalProps) {
   const [form, setForm] = useState<FormState>({
     entidadeId: '',
-    cpf: '',
     telefone: '',
     setorId: '',
     funcaoId: '',
@@ -92,7 +104,6 @@ export function EditarUsuarioModal({
   const initial = useMemo<FormState>(
     () => ({
       entidadeId: usuario ? idPorNome(entidades, usuario.entidade ?? '') : '',
-      cpf: usuario?.cpf ?? '',
       telefone: usuario?.telefone ?? '',
       setorId: usuario ? idPorNome(setores, usuario.setor) : '',
       funcaoId: usuario ? idPorNome(funcoes, usuario.funcao) : '',
@@ -108,7 +119,6 @@ export function EditarUsuarioModal({
 
   const alterado =
     form.entidadeId !== initial.entidadeId ||
-    form.cpf !== initial.cpf ||
     form.telefone !== initial.telefone ||
     form.setorId !== initial.setorId ||
     form.funcaoId !== initial.funcaoId ||
@@ -117,7 +127,6 @@ export function EditarUsuarioModal({
   function handleSalvar() {
     onSalvar({
       entidadeId: form.entidadeId || null,
-      cpf: form.cpf.trim() || null,
       telefone: form.telefone.trim() || null,
       setorId: form.setorId || null,
       funcaoId: form.funcaoId || null,
@@ -135,7 +144,7 @@ export function EditarUsuarioModal({
           <DialogTitle>{apenasContato ? 'Editar meus dados' : 'Editar usuário'}</DialogTitle>
           <DialogDescription>
             {apenasContato
-              ? 'Atualize seu CPF e telefone. Os demais dados dependem do RH/DP.'
+              ? 'Atualize seu telefone. Os demais dados dependem do RH/DP.'
               : `Atualize os dados de ${usuario?.nome}.`}
           </DialogDescription>
         </DialogHeader>
@@ -163,20 +172,6 @@ export function EditarUsuarioModal({
               </Select>
             </div>
           )}
-
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="cpf">CPF</Label>
-            <Input
-              id="cpf"
-              value={form.cpf}
-              inputMode="numeric"
-              maxLength={14}
-              onChange={(event) =>
-                setForm((f) => ({ ...f, cpf: mascararCpf(event.target.value) }))
-              }
-              placeholder="000.000.000-00"
-            />
-          </div>
 
           <div className="flex flex-col gap-2">
             <Label htmlFor="telefone">Telefone</Label>

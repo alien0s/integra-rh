@@ -15,6 +15,12 @@ export interface AppLayoutProps {
   title: string
   description?: string
   actions?: ReactNode
+  /**
+   * Abas de navegação da página (ex.: Visão geral/Pessoal/Feriados em
+   * /ferias) — ganham uma linha própria no cabeçalho, abaixo do título, em
+   * vez de disputar espaço com busca/ações/sino na mesma linha.
+   */
+  tabs?: ReactNode
   breadcrumbs?: AppHeaderBreadcrumbItem[]
   children: ReactNode
   /**
@@ -37,6 +43,7 @@ export function AppLayout({
   title,
   description,
   actions,
+  tabs,
   breadcrumbs,
   children,
   fillHeight = false,
@@ -51,6 +58,7 @@ export function AppLayout({
           title={title}
           description={description}
           actions={actions}
+          tabs={tabs}
           breadcrumbs={breadcrumbs}
           className={`${layoutFrameClass} ${layoutSpacingClass} ${fillHeight ? "shrink-0" : ""}`}
         />

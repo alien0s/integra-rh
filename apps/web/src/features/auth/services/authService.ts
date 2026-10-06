@@ -108,11 +108,11 @@ export const authService = {
     return (await response.json()) as AuthTokenResponse
   },
 
-  /** Atualiza o próprio perfil (só cpf/telefone). Requer estar logado. */
-  async updateMeuPerfil(input: {
-    cpf: string | null
-    telefone: string | null
-  }): Promise<void> {
+  /**
+   * Atualiza o próprio perfil (só telefone — CPF não é editável, vem do
+   * legado). Requer estar logado.
+   */
+  async updateMeuPerfil(input: { telefone: string | null }): Promise<void> {
     const response = await fetch(`${API_URL}/auth/me`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json', ...authHeaders() },

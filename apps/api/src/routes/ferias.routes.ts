@@ -31,9 +31,23 @@ import {
   type SolicitacaoFeriasDTO,
   type VisaoGeralFeriasDTO,
 } from "../lib/ferias.js";
+import { rodaComoUsuario } from "../lib/database.js";
 import { emitirParaPapeis, emitirParaUsuario } from "../lib/notificacoes.js";
-import { bloquearColaborador, exigirPapeis } from "../plugins/auth.js";
+import {
+  bloquearColaborador,
+  exigirAdminDuranteBeta,
+  exigirPapeis,
+} from "../plugins/auth.js";
 import type { ApiListResponse, ApiResponse } from "../types/api.js";
+
+/**
+ * Todo handler deste arquivo que toca `ferias_solicitacoes` roda dentro de
+ * `rodaComoUsuario` — abre uma transação com a identidade do usuário
+ * (`app.user_id`/`app.papel`) pras policies de RLS lerem (ver migration
+ * 025_rls_ferias_solicitacoes.sql). As duas rotas de "Exceções"
+ * (GET/PATCH /ferias/excecoes...) tocam só `users` — RLS ainda não ligado
+ * lá — então ficam de fora, sem essa transação.
+ */
 
 /** Papéis que podem registrar férias/folga manualmente (histórico/retroativo). */
 const PAPEIS_QUE_PODEM_REGISTRAR_FERIAS_MANUAL = new Set([
@@ -78,6 +92,11 @@ function ehConfirmadorCorreto(
  *   confirmador confirma → notifica o colaborador. Recusa/cancelamento → notifica.
  */
 export async function feriasRoutes(app: FastifyInstance) {
+  // Lançamento beta (ver exigirAdminDuranteBeta): só ADMIN por enquanto,
+  // espelhando o bloqueio de navegação do front. Roda em TODAS as rotas
+  // deste arquivo (hook de plugin, depois de app.authenticate).
+  app.addHook("preHandler", exigirAdminDuranteBeta);
+
   /* ── Leitura ─────────────────────────────────────────────────────────── */
 
   // Visão geral (gestor/DP/RH): todas as solicitações. COLABORADOR usa
@@ -89,11 +108,13 @@ export async function feriasRoutes(app: FastifyInstance) {
       schema: { tags: ["Férias"], summary: "Lista todas as solicitações" },
     },
     async (request) => {
-      // GESTOR só vê a própria equipe; DP/RH/ADMIN veem todas.
-      const gestorId =
-        request.user.papelCodigo === "GESTOR" ? request.user.id : undefined;
-      const solicitacoes = await listSolicitacoes(gestorId);
-      return { data: solicitacoes, total: solicitacoes.length };
+      return rodaComoUsuario(request.user, async () => {
+        // GESTOR só vê a própria equipe; DP/RH/ADMIN veem todas.
+        const gestorId =
+          request.user.papelCodigo === "GESTOR" ? request.user.id : undefined;
+        const solicitacoes = await listSolicitacoes(gestorId);
+        return { data: solicitacoes, total: solicitacoes.length };
+      });
     },
   );
 
@@ -105,8 +126,10 @@ export async function feriasRoutes(app: FastifyInstance) {
       schema: { tags: ["Férias"], summary: "Histórico do próprio colaborador" },
     },
     async (request) => {
-      const minhas = await listMinhasSolicitacoes(request.user.id);
-      return { data: minhas, total: minhas.length };
+      return rodaComoUsuario(request.user, async () => {
+        const minhas = await listMinhasSolicitacoes(request.user.id);
+        return { data: minhas, total: minhas.length };
+      });
     },
   );
 
@@ -118,7 +141,9 @@ export async function feriasRoutes(app: FastifyInstance) {
       schema: { tags: ["Férias"], summary: "Resumo do saldo do colaborador" },
     },
     async (request) => {
-      return { data: await getResumoFerias(request.user.id) };
+      return rodaComoUsuario(request.user, async () => {
+        return { data: await getResumoFerias(request.user.id) };
+      });
     },
   );
 
@@ -130,8 +155,10 @@ export async function feriasRoutes(app: FastifyInstance) {
       schema: { tags: ["Férias"], summary: "Férias da equipe do gestor" },
     },
     async (request) => {
-      const equipe = await listSolicitacoesEquipe(request.user.id);
-      return { data: equipe, total: equipe.length };
+      return rodaComoUsuario(request.user, async () => {
+        const equipe = await listSolicitacoesEquipe(request.user.id);
+        return { data: equipe, total: equipe.length };
+      });
     },
   );
 
@@ -154,7 +181,9 @@ export async function feriasRoutes(app: FastifyInstance) {
       },
     },
     async (request) => {
-      return { data: await listVisaoGeral(request.query.mes) };
+      return rodaComoUsuario(request.user, async () => {
+        return { data: await listVisaoGeral(request.query.mes) };
+      });
     },
   );
 
@@ -168,9 +197,13 @@ export async function feriasRoutes(app: FastifyInstance) {
         summary: "Lista os colaboradores e suas exceções de fracionamento/venda",
       },
     },
-    async () => {
-      const excecoes = await listExcecoesFerias();
-      return { data: excecoes, total: excecoes.length };
+    async (request) => {
+      // 'users' também tem RLS agora (ver 006_users.sql) — precisa do
+      // mesmo wrapper, mesmo não tocando ferias_solicitacoes.
+      return rodaComoUsuario(request.user, async () => {
+        const excecoes = await listExcecoesFerias();
+        return { data: excecoes, total: excecoes.length };
+      });
     },
   );
 
@@ -198,11 +231,13 @@ export async function feriasRoutes(app: FastifyInstance) {
       },
     },
     async (request, reply) => {
-      const atualizado = await atualizarExcecaoFerias(request.params.usuarioId, request.body);
-      if (!atualizado) {
-        return reply.code(404).send({ message: "Usuário não encontrado." });
-      }
-      return { data: atualizado };
+      return rodaComoUsuario(request.user, async () => {
+        const atualizado = await atualizarExcecaoFerias(request.params.usuarioId, request.body);
+        if (!atualizado) {
+          return reply.code(404).send({ message: "Usuário não encontrado." });
+        }
+        return { data: atualizado };
+      });
     },
   );
 
@@ -236,52 +271,54 @@ export async function feriasRoutes(app: FastifyInstance) {
       },
     },
     async (request, reply) => {
-      let resultado;
-      try {
-        resultado = await criarSolicitacao(request.user.id, request.body);
-      } catch (error) {
-        if (
-          error instanceof SolicitacaoFeriasPendenteError ||
-          error instanceof SolicitacaoFeriasJaAprovadaError
-        ) {
-          return reply.code(409).send({ message: error.message });
+      return rodaComoUsuario(request.user, async () => {
+        let resultado;
+        try {
+          resultado = await criarSolicitacao(request.user.id, request.body);
+        } catch (error) {
+          if (
+            error instanceof SolicitacaoFeriasPendenteError ||
+            error instanceof SolicitacaoFeriasJaAprovadaError
+          ) {
+            return reply.code(409).send({ message: error.message });
+          }
+          if (error instanceof SolicitacaoFeriasInvalidaError) {
+            return reply.code(400).send({ message: error.message });
+          }
+          throw error;
         }
-        if (error instanceof SolicitacaoFeriasInvalidaError) {
-          return reply.code(400).send({ message: error.message });
+
+        const { solicitacao, statusInicial, gestorId } = resultado;
+        const verbo =
+          request.body.tipo === "FOLGA" ? "solicitou folga" : "solicitou férias";
+
+        if (statusInicial === "PENDENTE" && gestorId) {
+          // 1ª etapa: notifica o gestor do setor (acionável).
+          await emitirParaUsuario(gestorId, {
+            atorId: request.user.id,
+            tipo: `${request.body.tipo}_SOLICITADA`,
+            acao: verbo,
+            detalhe: solicitacao.periodo,
+            referenciaTabela: "ferias_solicitacoes",
+            referenciaId: solicitacao.id,
+            requerAcao: true,
+          });
+        } else {
+          // Sem gestor no setor (fallback): já vai ao confirmador (COORD. DP, ou
+          // RH se o próprio solicitante for COORD. DP).
+          await emitirParaPapeis(papeisQueConfirmam(solicitacao.solicitantePapel ?? null), {
+            atorId: request.user.id,
+            tipo: `${request.body.tipo}_AGUARDA_DP`,
+            acao: verbo,
+            detalhe: solicitacao.periodo,
+            referenciaTabela: "ferias_solicitacoes",
+            referenciaId: solicitacao.id,
+            requerAcao: true,
+          });
         }
-        throw error;
-      }
 
-      const { solicitacao, statusInicial, gestorId } = resultado;
-      const verbo =
-        request.body.tipo === "FOLGA" ? "solicitou folga" : "solicitou férias";
-
-      if (statusInicial === "PENDENTE" && gestorId) {
-        // 1ª etapa: notifica o gestor do setor (acionável).
-        await emitirParaUsuario(gestorId, {
-          atorId: request.user.id,
-          tipo: `${request.body.tipo}_SOLICITADA`,
-          acao: verbo,
-          detalhe: solicitacao.periodo,
-          referenciaTabela: "ferias_solicitacoes",
-          referenciaId: solicitacao.id,
-          requerAcao: true,
-        });
-      } else {
-        // Sem gestor no setor (fallback): já vai ao confirmador (COORD. DP, ou
-        // RH se o próprio solicitante for COORD. DP).
-        await emitirParaPapeis(papeisQueConfirmam(solicitacao.solicitantePapel ?? null), {
-          atorId: request.user.id,
-          tipo: `${request.body.tipo}_AGUARDA_DP`,
-          acao: verbo,
-          detalhe: solicitacao.periodo,
-          referenciaTabela: "ferias_solicitacoes",
-          referenciaId: solicitacao.id,
-          requerAcao: true,
-        });
-      }
-
-      return { data: solicitacao };
+        return { data: solicitacao };
+      });
     },
   );
 
@@ -312,27 +349,29 @@ export async function feriasRoutes(app: FastifyInstance) {
       },
     },
     async (request, reply) => {
-      const papel = request.user.papelCodigo;
-      // papel undefined = modo dev (auth desativada) — libera.
-      if (papel !== undefined && !PAPEIS_QUE_PODEM_REGISTRAR_FERIAS_MANUAL.has(papel)) {
-        return reply
-          .code(403)
-          .send({ message: "Sem permissão para registrar férias manualmente." });
-      }
+      return rodaComoUsuario(request.user, async () => {
+        const papel = request.user.papelCodigo;
+        // papel undefined = modo dev (auth desativada) — libera.
+        if (papel !== undefined && !PAPEIS_QUE_PODEM_REGISTRAR_FERIAS_MANUAL.has(papel)) {
+          return reply
+            .code(403)
+            .send({ message: "Sem permissão para registrar férias manualmente." });
+        }
 
-      const { dataInicio, dataFim } = request.body;
-      if (new Date(dataFim) < new Date(dataInicio)) {
-        return reply
-          .code(400)
-          .send({ message: "A data final não pode ser antes da data inicial." });
-      }
+        const { dataInicio, dataFim } = request.body;
+        if (new Date(dataFim) < new Date(dataInicio)) {
+          return reply
+            .code(400)
+            .send({ message: "A data final não pode ser antes da data inicial." });
+        }
 
-      const registrada = await registrarFeriasManual(
-        { ...request.body, observacoes: request.body.observacoes ?? null },
-        request.user.id,
-      );
+        const registrada = await registrarFeriasManual(
+          { ...request.body, observacoes: request.body.observacoes ?? null },
+          request.user.id,
+        );
 
-      return reply.code(201).send({ data: registrada });
+        return reply.code(201).send({ data: registrada });
+      });
     },
   );
 
@@ -347,55 +386,57 @@ export async function feriasRoutes(app: FastifyInstance) {
       schema: { tags: ["Férias"], summary: "Gestor aprova (1ª etapa)" },
     },
     async (request, reply) => {
-      const info = await getSolicitacaoParaNotificar(request.params.id);
-      if (!info) {
-        return reply.code(404).send({ message: "Solicitação não encontrada." });
-      }
-      // Ninguém decide sobre a própria solicitação.
-      if (info.userId === request.user.id) {
-        return reply
-          .code(403)
-          .send({ message: "Você não pode aprovar a sua própria solicitação." });
-      }
-      // GESTOR só aprova solicitações do PRÓPRIO setor; ADMIN passa direto.
-      if (
-        request.user.papelCodigo === "GESTOR" &&
-        !(await ehGestorDaSolicitacao(request.params.id, request.user.id))
-      ) {
-        return reply
-          .code(403)
-          .send({ message: "Você não é o gestor do setor desta solicitação." });
-      }
+      return rodaComoUsuario(request.user, async () => {
+        const info = await getSolicitacaoParaNotificar(request.params.id);
+        if (!info) {
+          return reply.code(404).send({ message: "Solicitação não encontrada." });
+        }
+        // Ninguém decide sobre a própria solicitação.
+        if (info.userId === request.user.id) {
+          return reply
+            .code(403)
+            .send({ message: "Você não pode aprovar a sua própria solicitação." });
+        }
+        // GESTOR só aprova solicitações do PRÓPRIO setor; ADMIN passa direto.
+        if (
+          request.user.papelCodigo === "GESTOR" &&
+          !(await ehGestorDaSolicitacao(request.params.id, request.user.id))
+        ) {
+          return reply
+            .code(403)
+            .send({ message: "Você não é o gestor do setor desta solicitação." });
+        }
 
-      const dto = await aprovarSolicitacao(request.params.id, request.user.id);
-      if (!dto) {
-        return reply
-          .code(404)
-          .send({ message: "Solicitação não encontrada ou já decidida." });
-      }
+        const dto = await aprovarSolicitacao(request.params.id, request.user.id);
+        if (!dto) {
+          return reply
+            .code(404)
+            .send({ message: "Solicitação não encontrada ou já decidida." });
+        }
 
-      {
-        // Encaminha ao confirmador correto (acionável) e avisa o colaborador.
-        await emitirParaPapeis(papeisQueConfirmam(info.solicitantePapel), {
-          atorId: request.user.id,
-          tipo: "FERIAS_AGUARDA_DP",
-          acao: `aprovou férias de ${primeiroEUltimoNome(info.funcionarioNome)}`,
-          detalhe: info.periodo,
-          referenciaTabela: "ferias_solicitacoes",
-          referenciaId: request.params.id,
-          requerAcao: true,
-        });
-        await emitirParaUsuario(info.userId, {
-          atorId: request.user.id,
-          tipo: "FERIAS_APROVADA_GESTOR",
-          acao: "aprovou sua solicitação (aguardando o DP)",
-          detalhe: info.periodo,
-          referenciaTabela: "ferias_solicitacoes",
-          referenciaId: request.params.id,
-        });
-      }
+        {
+          // Encaminha ao confirmador correto (acionável) e avisa o colaborador.
+          await emitirParaPapeis(papeisQueConfirmam(info.solicitantePapel), {
+            atorId: request.user.id,
+            tipo: "FERIAS_AGUARDA_DP",
+            acao: `aprovou férias de ${primeiroEUltimoNome(info.funcionarioNome)}`,
+            detalhe: info.periodo,
+            referenciaTabela: "ferias_solicitacoes",
+            referenciaId: request.params.id,
+            requerAcao: true,
+          });
+          await emitirParaUsuario(info.userId, {
+            atorId: request.user.id,
+            tipo: "FERIAS_APROVADA_GESTOR",
+            acao: "aprovou sua solicitação (aguardando o DP)",
+            detalhe: info.periodo,
+            referenciaTabela: "ferias_solicitacoes",
+            referenciaId: request.params.id,
+          });
+        }
 
-      return { data: dto };
+        return { data: dto };
+      });
     },
   );
 
@@ -410,41 +451,43 @@ export async function feriasRoutes(app: FastifyInstance) {
       schema: { tags: ["Férias"], summary: "Confirma a solicitação (2ª etapa)" },
     },
     async (request, reply) => {
-      const info = await getSolicitacaoParaNotificar(request.params.id);
-      if (!info) {
-        return reply.code(404).send({ message: "Solicitação não encontrada." });
-      }
-      if (info.userId === request.user.id) {
-        return reply
-          .code(403)
-          .send({ message: "Você não pode confirmar a sua própria solicitação." });
-      }
-      // COORD. DP confirma as dos demais; RH confirma as do COORD. DP.
-      if (!ehConfirmadorCorreto(request.user.papelCodigo, info.solicitantePapel)) {
-        return reply
-          .code(403)
-          .send({ message: "Esta solicitação é confirmada por outro papel." });
-      }
+      return rodaComoUsuario(request.user, async () => {
+        const info = await getSolicitacaoParaNotificar(request.params.id);
+        if (!info) {
+          return reply.code(404).send({ message: "Solicitação não encontrada." });
+        }
+        if (info.userId === request.user.id) {
+          return reply
+            .code(403)
+            .send({ message: "Você não pode confirmar a sua própria solicitação." });
+        }
+        // COORD. DP confirma as dos demais; RH confirma as do COORD. DP.
+        if (!ehConfirmadorCorreto(request.user.papelCodigo, info.solicitantePapel)) {
+          return reply
+            .code(403)
+            .send({ message: "Esta solicitação é confirmada por outro papel." });
+        }
 
-      const dto = await confirmarSolicitacao(request.params.id, request.user.id);
-      if (!dto) {
-        return reply
-          .code(404)
-          .send({ message: "Solicitação não encontrada ou não está aguardando o DP." });
-      }
+        const dto = await confirmarSolicitacao(request.params.id, request.user.id);
+        if (!dto) {
+          return reply
+            .code(404)
+            .send({ message: "Solicitação não encontrada ou não está aguardando o DP." });
+        }
 
-      {
-        await emitirParaUsuario(info.userId, {
-          atorId: request.user.id,
-          tipo: "FERIAS_CONFIRMADA",
-          acao: "confirmou suas férias",
-          detalhe: info.periodo,
-          referenciaTabela: "ferias_solicitacoes",
-          referenciaId: request.params.id,
-        });
-      }
+        {
+          await emitirParaUsuario(info.userId, {
+            atorId: request.user.id,
+            tipo: "FERIAS_CONFIRMADA",
+            acao: "confirmou suas férias",
+            detalhe: info.periodo,
+            referenciaTabela: "ferias_solicitacoes",
+            referenciaId: request.params.id,
+          });
+        }
 
-      return { data: dto };
+        return { data: dto };
+      });
     },
   );
 
@@ -475,51 +518,53 @@ export async function feriasRoutes(app: FastifyInstance) {
       },
     },
     async (request, reply) => {
-      const info = await getSolicitacaoParaNotificar(request.params.id);
-      if (!info) {
-        return reply.code(404).send({ message: "Solicitação não encontrada." });
-      }
-      if (info.userId === request.user.id) {
-        return reply
-          .code(403)
-          .send({ message: "Você não pode sugerir um ajuste na sua própria solicitação." });
-      }
-      if (!ehConfirmadorCorreto(request.user.papelCodigo, info.solicitantePapel)) {
-        return reply
-          .code(403)
-          .send({ message: "Esta solicitação é confirmada por outro papel." });
-      }
-
-      let dto;
-      try {
-        dto = await sugerirAjusteSolicitacao(
-          request.params.id,
-          request.user.id,
-          request.body.dataInicioSugerida,
-          request.body.motivo,
-        );
-      } catch (error) {
-        if (error instanceof SolicitacaoFeriasInvalidaError) {
-          return reply.code(400).send({ message: error.message });
+      return rodaComoUsuario(request.user, async () => {
+        const info = await getSolicitacaoParaNotificar(request.params.id);
+        if (!info) {
+          return reply.code(404).send({ message: "Solicitação não encontrada." });
         }
-        throw error;
-      }
-      if (!dto) {
-        return reply
-          .code(404)
-          .send({ message: "Solicitação não encontrada ou não está aguardando o DP." });
-      }
+        if (info.userId === request.user.id) {
+          return reply
+            .code(403)
+            .send({ message: "Você não pode sugerir um ajuste na sua própria solicitação." });
+        }
+        if (!ehConfirmadorCorreto(request.user.papelCodigo, info.solicitantePapel)) {
+          return reply
+            .code(403)
+            .send({ message: "Esta solicitação é confirmada por outro papel." });
+        }
 
-      await emitirParaUsuario(info.userId, {
-        atorId: request.user.id,
-        tipo: "FERIAS_AJUSTE_SUGERIDO",
-        acao: "sugeriu um ajuste na data das suas férias",
-        detalhe: dto.periodoSugerido ?? info.periodo,
-        referenciaTabela: "ferias_solicitacoes",
-        referenciaId: request.params.id,
+        let dto;
+        try {
+          dto = await sugerirAjusteSolicitacao(
+            request.params.id,
+            request.user.id,
+            request.body.dataInicioSugerida,
+            request.body.motivo,
+          );
+        } catch (error) {
+          if (error instanceof SolicitacaoFeriasInvalidaError) {
+            return reply.code(400).send({ message: error.message });
+          }
+          throw error;
+        }
+        if (!dto) {
+          return reply
+            .code(404)
+            .send({ message: "Solicitação não encontrada ou não está aguardando o DP." });
+        }
+
+        await emitirParaUsuario(info.userId, {
+          atorId: request.user.id,
+          tipo: "FERIAS_AJUSTE_SUGERIDO",
+          acao: "sugeriu um ajuste na data das suas férias",
+          detalhe: dto.periodoSugerido ?? info.periodo,
+          referenciaTabela: "ferias_solicitacoes",
+          referenciaId: request.params.id,
+        });
+
+        return { data: dto };
       });
-
-      return { data: dto };
     },
   );
 
@@ -539,37 +584,39 @@ export async function feriasRoutes(app: FastifyInstance) {
       },
     },
     async (request, reply) => {
-      const resultado = await aceitarAjusteSolicitacao(request.params.id, request.user.id);
-      if (!resultado) {
-        return reply.code(404).send({
-          message: "Solicitação não encontrada ou não está aguardando sua confirmação.",
-        });
-      }
+      return rodaComoUsuario(request.user, async () => {
+        const resultado = await aceitarAjusteSolicitacao(request.params.id, request.user.id);
+        if (!resultado) {
+          return reply.code(404).send({
+            message: "Solicitação não encontrada ou não está aguardando sua confirmação.",
+          });
+        }
 
-      const { solicitacao, statusInicial, gestorId } = resultado;
-      if (statusInicial === "PENDENTE" && gestorId) {
-        await emitirParaUsuario(gestorId, {
-          atorId: request.user.id,
-          tipo: "FERIAS_SOLICITADA",
-          acao: "aceitou o ajuste de data e aguarda aprovação",
-          detalhe: solicitacao.periodo,
-          referenciaTabela: "ferias_solicitacoes",
-          referenciaId: solicitacao.id,
-          requerAcao: true,
-        });
-      } else {
-        await emitirParaPapeis(papeisQueConfirmam(solicitacao.solicitantePapel ?? null), {
-          atorId: request.user.id,
-          tipo: "FERIAS_AGUARDA_DP",
-          acao: "aceitou o ajuste de data e aguarda confirmação",
-          detalhe: solicitacao.periodo,
-          referenciaTabela: "ferias_solicitacoes",
-          referenciaId: solicitacao.id,
-          requerAcao: true,
-        });
-      }
+        const { solicitacao, statusInicial, gestorId } = resultado;
+        if (statusInicial === "PENDENTE" && gestorId) {
+          await emitirParaUsuario(gestorId, {
+            atorId: request.user.id,
+            tipo: "FERIAS_SOLICITADA",
+            acao: "aceitou o ajuste de data e aguarda aprovação",
+            detalhe: solicitacao.periodo,
+            referenciaTabela: "ferias_solicitacoes",
+            referenciaId: solicitacao.id,
+            requerAcao: true,
+          });
+        } else {
+          await emitirParaPapeis(papeisQueConfirmam(solicitacao.solicitantePapel ?? null), {
+            atorId: request.user.id,
+            tipo: "FERIAS_AGUARDA_DP",
+            acao: "aceitou o ajuste de data e aguarda confirmação",
+            detalhe: solicitacao.periodo,
+            referenciaTabela: "ferias_solicitacoes",
+            referenciaId: solicitacao.id,
+            requerAcao: true,
+          });
+        }
 
-      return { data: solicitacao };
+        return { data: solicitacao };
+      });
     },
   );
 
@@ -597,58 +644,60 @@ export async function feriasRoutes(app: FastifyInstance) {
       },
     },
     async (request, reply) => {
-      const info = await getSolicitacaoParaNotificar(request.params.id);
-      if (!info) {
-        return reply.code(404).send({ message: "Solicitação não encontrada." });
-      }
-      if (info.userId === request.user.id) {
-        return reply
-          .code(403)
-          .send({ message: "Você não pode recusar a sua própria solicitação." });
-      }
-      const papel = request.user.papelCodigo;
-      // GESTOR só recusa do próprio setor (1ª etapa); o confirmador só recusa
-      // as solicitações que confirmaria (2ª etapa). ADMIN passa.
-      if (
-        papel === "GESTOR" &&
-        !(await ehGestorDaSolicitacao(request.params.id, request.user.id))
-      ) {
-        return reply
-          .code(403)
-          .send({ message: "Você não é o gestor do setor desta solicitação." });
-      }
-      if (
-        (papel === "COORDENADOR DP" || papel === "RH") &&
-        !ehConfirmadorCorreto(papel, info.solicitantePapel)
-      ) {
-        return reply
-          .code(403)
-          .send({ message: "Esta solicitação é confirmada por outro papel." });
-      }
+      return rodaComoUsuario(request.user, async () => {
+        const info = await getSolicitacaoParaNotificar(request.params.id);
+        if (!info) {
+          return reply.code(404).send({ message: "Solicitação não encontrada." });
+        }
+        if (info.userId === request.user.id) {
+          return reply
+            .code(403)
+            .send({ message: "Você não pode recusar a sua própria solicitação." });
+        }
+        const papel = request.user.papelCodigo;
+        // GESTOR só recusa do próprio setor (1ª etapa); o confirmador só recusa
+        // as solicitações que confirmaria (2ª etapa). ADMIN passa.
+        if (
+          papel === "GESTOR" &&
+          !(await ehGestorDaSolicitacao(request.params.id, request.user.id))
+        ) {
+          return reply
+            .code(403)
+            .send({ message: "Você não é o gestor do setor desta solicitação." });
+        }
+        if (
+          (papel === "COORDENADOR DP" || papel === "RH") &&
+          !ehConfirmadorCorreto(papel, info.solicitantePapel)
+        ) {
+          return reply
+            .code(403)
+            .send({ message: "Esta solicitação é confirmada por outro papel." });
+        }
 
-      const dto = await recusarSolicitacao(
-        request.params.id,
-        request.user.id,
-        request.body.motivo,
-      );
-      if (!dto) {
-        return reply
-          .code(404)
-          .send({ message: "Solicitação não encontrada ou já decidida." });
-      }
+        const dto = await recusarSolicitacao(
+          request.params.id,
+          request.user.id,
+          request.body.motivo,
+        );
+        if (!dto) {
+          return reply
+            .code(404)
+            .send({ message: "Solicitação não encontrada ou já decidida." });
+        }
 
-      {
-        await emitirParaUsuario(info.userId, {
-          atorId: request.user.id,
-          tipo: "FERIAS_RECUSADA",
-          acao: "recusou sua solicitação de férias",
-          detalhe: request.body.motivo,
-          referenciaTabela: "ferias_solicitacoes",
-          referenciaId: request.params.id,
-        });
-      }
+        {
+          await emitirParaUsuario(info.userId, {
+            atorId: request.user.id,
+            tipo: "FERIAS_RECUSADA",
+            acao: "recusou sua solicitação de férias",
+            detalhe: request.body.motivo,
+            referenciaTabela: "ferias_solicitacoes",
+            referenciaId: request.params.id,
+          });
+        }
 
-      return { data: dto };
+        return { data: dto };
+      });
     },
   );
 
@@ -672,56 +721,58 @@ export async function feriasRoutes(app: FastifyInstance) {
       },
     },
     async (request, reply) => {
-      const papel = request.user.papelCodigo;
-      // Cancelar uma já APROVADA é do confirmador (COORD. DP / RH) ou ADMIN.
-      const ehConfirmador =
-        papel === "COORDENADOR DP" ||
-        papel === "RH" ||
-        papel === "ADMIN" ||
-        papel === undefined;
+      return rodaComoUsuario(request.user, async () => {
+        const papel = request.user.papelCodigo;
+        // Cancelar uma já APROVADA é do confirmador (COORD. DP / RH) ou ADMIN.
+        const ehConfirmador =
+          papel === "COORDENADOR DP" ||
+          papel === "RH" ||
+          papel === "ADMIN" ||
+          papel === undefined;
 
-      const resultado = await cancelarSolicitacao(
-        request.params.id,
-        request.user.id,
-        ehConfirmador,
-        request.body?.motivo ?? null,
-      );
+        const resultado = await cancelarSolicitacao(
+          request.params.id,
+          request.user.id,
+          ehConfirmador,
+          request.body?.motivo ?? null,
+        );
 
-      if (!resultado.ok) {
-        if (resultado.motivo === "NAO_ENCONTRADA") {
-          return reply.code(404).send({ message: "Solicitação não encontrada." });
+        if (!resultado.ok) {
+          if (resultado.motivo === "NAO_ENCONTRADA") {
+            return reply.code(404).send({ message: "Solicitação não encontrada." });
+          }
+          return reply
+            .code(403)
+            .send({ message: "Você não pode cancelar esta solicitação." });
         }
-        return reply
-          .code(403)
-          .send({ message: "Você não pode cancelar esta solicitação." });
-      }
 
-      // Avisa a contraparte: DP cancelou → avisa o dono; dono cancelou → avisa o DP.
-      const info = await getSolicitacaoParaNotificar(request.params.id);
-      if (info) {
-        const donoCancelou = info.userId === request.user.id;
-        if (donoCancelou) {
-          await emitirParaPapeis(papeisQueConfirmam(info.solicitantePapel), {
-            atorId: request.user.id,
-            tipo: "FERIAS_CANCELADA",
-            acao: "cancelou a solicitação de férias",
-            detalhe: info.periodo,
-            referenciaTabela: "ferias_solicitacoes",
-            referenciaId: request.params.id,
-          });
-        } else {
-          await emitirParaUsuario(info.userId, {
-            atorId: request.user.id,
-            tipo: "FERIAS_CANCELADA",
-            acao: "cancelou suas férias",
-            detalhe: info.periodo,
-            referenciaTabela: "ferias_solicitacoes",
-            referenciaId: request.params.id,
-          });
+        // Avisa a contraparte: DP cancelou → avisa o dono; dono cancelou → avisa o DP.
+        const info = await getSolicitacaoParaNotificar(request.params.id);
+        if (info) {
+          const donoCancelou = info.userId === request.user.id;
+          if (donoCancelou) {
+            await emitirParaPapeis(papeisQueConfirmam(info.solicitantePapel), {
+              atorId: request.user.id,
+              tipo: "FERIAS_CANCELADA",
+              acao: "cancelou a solicitação de férias",
+              detalhe: info.periodo,
+              referenciaTabela: "ferias_solicitacoes",
+              referenciaId: request.params.id,
+            });
+          } else {
+            await emitirParaUsuario(info.userId, {
+              atorId: request.user.id,
+              tipo: "FERIAS_CANCELADA",
+              acao: "cancelou suas férias",
+              detalhe: info.periodo,
+              referenciaTabela: "ferias_solicitacoes",
+              referenciaId: request.params.id,
+            });
+          }
         }
-      }
 
-      return { data: resultado.solicitacao };
+        return { data: resultado.solicitacao };
+      });
     },
   );
 
@@ -734,23 +785,25 @@ export async function feriasRoutes(app: FastifyInstance) {
       schema: { tags: ["Férias"], summary: "Exclui uma solicitação já cancelada" },
     },
     async (request, reply) => {
-      const resultado = await excluirSolicitacao(request.params.id, request.user.id);
+      return rodaComoUsuario(request.user, async () => {
+        const resultado = await excluirSolicitacao(request.params.id, request.user.id);
 
-      if (!resultado.ok) {
-        if (resultado.motivo === "NAO_ENCONTRADA") {
-          return reply.code(404).send({ message: "Solicitação não encontrada." });
-        }
-        if (resultado.motivo === "NAO_CANCELADA") {
+        if (!resultado.ok) {
+          if (resultado.motivo === "NAO_ENCONTRADA") {
+            return reply.code(404).send({ message: "Solicitação não encontrada." });
+          }
+          if (resultado.motivo === "NAO_CANCELADA") {
+            return reply
+              .code(409)
+              .send({ message: "Só é possível excluir uma solicitação já cancelada." });
+          }
           return reply
-            .code(409)
-            .send({ message: "Só é possível excluir uma solicitação já cancelada." });
+            .code(403)
+            .send({ message: "Você não pode excluir esta solicitação." });
         }
-        return reply
-          .code(403)
-          .send({ message: "Você não pode excluir esta solicitação." });
-      }
 
-      return reply.code(204).send(undefined);
+        return reply.code(204).send(undefined);
+      });
     },
   );
 }

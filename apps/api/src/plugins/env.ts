@@ -55,6 +55,14 @@ export interface ApiConfig {
     /** MinIO exige path-style (bucket no caminho, não subdomínio). */
     forcePathStyle: boolean;
   };
+  // Leitura de diplomas/certificados por IA (upload de PDF/imagem → extrai os
+  // campos de qualificacoes_* automaticamente) — ver lib/ia/leitorDiploma.ts.
+  // Opcional: sem a chave, a rota correspondente responde 503 em vez de
+  // quebrar o boot da API (o resto do sistema funciona normalmente sem isso).
+  ia: {
+    geminiApiKey: string;
+    geminiModel: string;
+  };
 }
 
 function readEnv(name: string, fallback = "") {
@@ -71,6 +79,22 @@ function readBooleanEnv(name: string, fallback = false) {
   return ["1", "true", "yes", "on"].includes(value.toLowerCase());
 }
 
+// Sem fallback de propósito: um valor padrão aqui vazaria um segredo público
+// (o próprio texto deste arquivo) que qualquer um poderia usar pra forjar um
+// token JWT válido (inclusive com papelCodigo "ADMIN"). Falha alto e cedo
+// (na subida do processo) em vez de subir "aberto" silenciosamente.
+function requireEnv(name: string) {
+  const value = process.env[name];
+
+  if (!value) {
+    throw new Error(
+      `Variável de ambiente obrigatória ausente: ${name}. Defina-a no .env antes de subir a API.`,
+    );
+  }
+
+  return value;
+}
+
 export function getApiConfig(): ApiConfig {
   return {
     nodeEnv: readEnv("NODE_ENV", "development"),
@@ -79,7 +103,7 @@ export function getApiConfig(): ApiConfig {
     frontendUrl: readEnv("FRONTEND_URL", "http://localhost:5173"),
     authEnabled: readBooleanEnv("AUTH_ENABLED", true),
     jwt: {
-      secret: readEnv("JWT_SECRET", "change-me-in-env"),
+      secret: requireEnv("JWT_SECRET"),
       expiresIn: readEnv("JWT_EXPIRES_IN", "1h")
     },
     ldap: {
@@ -124,6 +148,17 @@ export function getApiConfig(): ApiConfig {
       bucket: readEnv("S3_BUCKET", "erp-arquivos"),
       publicUrl: readEnv("S3_PUBLIC_URL", "http://localhost:9000"),
       forcePathStyle: readBooleanEnv("S3_FORCE_PATH_STYLE", true)
+    },
+    ia: {
+      geminiApiKey: readEnv("GEMINI_API_KEY"),
+      // gemini-2.5-flash-lite: o mais barato da linha atual que ainda lê
+      // PDF/imagem (gemini-2.0-flash foi descontinuado pelo Google em 2026 —
+      // não usar). Suporta saída JSON estruturada (responseSchema), suficiente
+      // pra extrair campos de formulário de um documento. Troque via env se
+      // precisar de mais qualidade (ex.: gemini-2.5-flash ou -pro) sem mexer
+      // no código — conferir nomes/preços atuais em ai.google.dev antes de
+      // trocar, os nomes de modelo mudam com frequência.
+      geminiModel: readEnv("GEMINI_MODEL", "gemini-2.5-flash-lite")
     }
   };
 }

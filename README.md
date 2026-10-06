@@ -15,10 +15,17 @@ Monorepo ERP com React, Vite, shadcn base, Fastify, Turborepo e pnpm workspaces.
 ```bash
 pnpm install
 pnpm dev
-pnpm build
-pnpm build:web
-pnpm build:api
-pnpm type-check
+
+
+cd /home/inovacao/integra-rh
+pnpm build          # builda api + web juntos
+
+
 ```
+## reinciar o pm2
+
+cp -r apps/web/dist/* /var/www/integra/    # atualiza o front servido pelo nginx
+pm2 restart integra-api                     # atualiza a API (recarrega o dist/server.js novo)
+
 
 Por padrao, o web roda em `http://localhost:5173` e a API em `http://localhost:3333`.

@@ -32,6 +32,8 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
+import { useAuthUser } from '@/features/auth/hooks'
+import { podeEditarUsuario } from '@/features/usuarios/lib/permissoes'
 import type { Usuario, UsuarioTableColumn } from '@/features/usuarios/types'
 
 interface UsuariosTableProps {
@@ -62,6 +64,7 @@ export function UsuariosTable({
   onEditarUsuario,
   onExcluirUsuario,
 }: UsuariosTableProps) {
+  const usuarioLogado = useAuthUser()
   const [selectedSetores, setSelectedSetores] = useState<string[]>(
     []
   )
@@ -341,13 +344,17 @@ export function UsuariosTable({
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end" className="w-40">
-                        <DropdownMenuItem
-                          onSelect={() => onEditarUsuario?.(usuario)}
-                        >
-                          <Pencil className="h-4 w-4" />
-                          Editar
-                        </DropdownMenuItem>
-                        <DropdownMenuSeparator />
+                        {podeEditarUsuario(usuarioLogado, usuario) && (
+                          <>
+                            <DropdownMenuItem
+                              onSelect={() => onEditarUsuario?.(usuario)}
+                            >
+                              <Pencil className="h-4 w-4" />
+                              Editar
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                          </>
+                        )}
                         <DropdownMenuItem
                           className="text-red-600 focus:text-red-600 dark:text-red-400 dark:focus:text-red-400"
                           onSelect={() => setUsuarioParaExcluir(usuario)}

@@ -6,6 +6,5 @@
 export type ConfiguracoesSection =
   | 'conta'
   | 'aparencia'
-  | 'ferias'
   | 'notificacoes'
   | 'exibicao'

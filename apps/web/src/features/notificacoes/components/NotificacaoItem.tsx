@@ -1,10 +1,12 @@
-import { useState } from 'react'
+import { useState, type MouseEvent } from 'react'
 import {
   AlertTriangle,
+  Coffee,
   FileText,
   GraduationCap,
   Paperclip,
   Palmtree,
+  Loader2,
   type LucideIcon,
 } from 'lucide-react'
 
@@ -23,6 +25,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { cn } from '@/lib/cn'
+import { toast } from '@/hooks/use-toast'
 
 import {
   ehNotificacaoDeFerias,
@@ -30,6 +33,11 @@ import {
   type Notificacao,
   type NotificacaoCartaoIcone,
 } from '@/features/notificacoes/types'
+import {
+  abrirAnexoDaNotificacao,
+  ehNotificacaoDeQualificacao,
+  temAnexoParaVer,
+} from '@/features/notificacoes/lib/anexoNotificacao'
 
 interface NotificacaoItemProps {
   notificacao: Notificacao
@@ -45,6 +53,7 @@ const iconePorTipo: Record<NotificacaoCartaoIcone, LucideIcon> = {
   documento: FileText,
   curso: GraduationCap,
   obrigacao: AlertTriangle,
+  folga: Coffee,
 }
 
 /** Uma linha de notificação dentro do drawer. */
@@ -60,6 +69,24 @@ export function NotificacaoItem({
 
   // Motivo obrigatório na recusa (mesma regra da tela de Férias).
   const [motivo, setMotivo] = useState('')
+  // "Ver arquivo" (diploma/certificado) — Cursos e Qualificações.
+  const [abrindoAnexo, setAbrindoAnexo] = useState(false)
+
+  async function handleVerArquivo(e: MouseEvent) {
+    e.stopPropagation()
+    setAbrindoAnexo(true)
+    try {
+      await abrirAnexoDaNotificacao(notificacao)
+    } catch (erro) {
+      toast({
+        title: 'Não foi possível abrir o arquivo',
+        description: erro instanceof Error ? erro.message : undefined,
+        variant: 'destructive',
+      })
+    } finally {
+      setAbrindoAnexo(false)
+    }
+  }
   // Card do DP (2ª etapa) confirma; card do gestor aprova.
   const rotuloAprovar = notificacao.tipo?.endsWith('_AGUARDA_DP')
     ? 'Confirmar'
@@ -67,11 +94,14 @@ export function NotificacaoItem({
 
   // Notificações de férias (evento) navegam pra /ferias; notificações de
   // obrigação recorrente (tipo prefixado "OBRIGACAO_") navegam conforme o
-  // mapa ROTA_POR_TIPO_OBRIGACAO — as demais não são clicáveis.
+  // mapa ROTA_POR_TIPO_OBRIGACAO; notificações de qualificação (formação/
+  // curso/idioma cadastrados) abrem o DetalheQualificacaoDialog — as demais
+  // não são clicáveis.
   const podeAbrir =
     Boolean(onAbrir) &&
     (notificacao.referenciaTabela === 'ferias_solicitacoes' ||
-      Boolean(notificacao.tipo && ROTA_POR_TIPO_OBRIGACAO[notificacao.tipo]))
+      Boolean(notificacao.tipo && ROTA_POR_TIPO_OBRIGACAO[notificacao.tipo]) ||
+      ehNotificacaoDeQualificacao(notificacao))
 
   return (
     <div
@@ -134,6 +164,23 @@ export function NotificacaoItem({
                 </p>
               </div>
             </div>
+
+            {temAnexoParaVer(notificacao) ? (
+              <Button
+                variant="link"
+                size="sm"
+                className="mt-2 h-auto gap-1.5 p-0 text-xs"
+                disabled={abrindoAnexo}
+                onClick={handleVerArquivo}
+              >
+                {abrindoAnexo ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Paperclip className="h-3.5 w-3.5" />
+                )}
+                Ver arquivo
+              </Button>
+            ) : null}
 
             {notificacao.requerAcao ? (
               // Clique isolado — os botões não disparam a navegação da linha.

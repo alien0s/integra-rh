@@ -31,6 +31,8 @@ export type OrigemFerias = 'SOLICITACAO' | 'REGISTRO_MANUAL'
 /** Solicitação de férias de um colaborador. */
 export interface SolicitacaoFerias {
   id: string
+  /** FERIAS ou FOLGA — a Visão geral mistura os dois tipos na mesma lista. */
+  tipo: 'FERIAS' | 'FOLGA'
   /** ID do colaborador solicitante (para saber se é do próprio usuário logado). */
   userId: string
   /** Papel do solicitante — define quem confirma (COORDENADOR DP ou RH). */
@@ -106,6 +108,13 @@ export interface FeriasResumo {
   /** Exceções liberadas pelo DP pra esse colaborador (aba "Exceções"). */
   podeFracionarFerias: boolean
   podeVenderFerias: boolean
+  /**
+   * A entidade do colaborador pertence a um grupo que exige o período
+   * completo de 30 dias corridos (hoje: ACeAm) — trava a duração no
+   * calendário de NovaSolicitacaoForm.tsx. `podeFracionarFerias` continua
+   * valendo por cima: quem tem as duas ainda escolhe 10/15 dias.
+   */
+  exigeTrintaDias: boolean
 }
 
 /** Um colaborador no diálogo "Exceções" (DP) — nome/foto/setor + as duas flags. */

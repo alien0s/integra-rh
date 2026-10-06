@@ -17,6 +17,12 @@ interface UsuarioPerfilHeaderProps {
   onUploadAvatar: (blob: Blob) => Promise<void> | void
   /** Abre o modal de edição. */
   onEditar: () => void
+  /**
+   * Exibe o botão de editar — ver `podeEditarUsuario`
+   * (features/usuarios/lib/permissoes.ts): nunca sobre o próprio usuário
+   * logado, e só pra papéis liberados (hoje só ADMIN).
+   */
+  podeEditar: boolean
   /** Exibe o botão de personificar. */
   podePersonificar: boolean
   /** Inicia a personificação. */
@@ -31,6 +37,7 @@ export function UsuarioPerfilHeader({
   usuario,
   onUploadAvatar,
   onEditar,
+  podeEditar,
   podePersonificar,
   onPersonificar,
 }: UsuarioPerfilHeaderProps) {
@@ -65,10 +72,12 @@ export function UsuarioPerfilHeader({
             Personificar
           </Button>
         )}
-        <Button variant="outline" size="sm" onClick={onEditar}>
-          <Pencil className="h-4 w-4" />
-          Editar
-        </Button>
+        {podeEditar && (
+          <Button variant="outline" size="sm" onClick={onEditar}>
+            <Pencil className="h-4 w-4" />
+            Editar
+          </Button>
+        )}
       </div>
     </div>
   )

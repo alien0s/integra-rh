@@ -39,9 +39,9 @@ export class VrMesJaExisteError extends Error {
  * converte isso num 409.
  */
 export class VrMesAbertoExistenteError extends Error {
-  constructor(mes: number, ano: number) {
+  constructor(mes: number, ano: number, grupo: string) {
     super(
-      `Já existe um mês aberto (${mes}/${ano}) — feche todas as entidades dele antes de cadastrar outro mês`,
+      `Já existe um mês aberto no grupo ${grupo} (${mes}/${ano}) — feche todas as entidades dele antes de cadastrar outro mês`,
     );
     this.name = "VrMesAbertoExistenteError";
   }
@@ -122,6 +122,8 @@ export interface FechamentoVrResultado {
 /** Resumo de um mês de VR, para a lista/tela de cadastro. */
 export interface VrMesResumo {
   id: string;
+  /** Grupo (campo) dono do mês: ACeAm, ANRA... */
+  grupo: string;
   mes: number;
   ano: number;
   fechado: boolean;
@@ -132,6 +134,8 @@ export interface VrMesResumo {
 
 /** Entrada para cadastrar um novo mês de VR. */
 export interface CriarVrMesInput {
+  /** Grupo do mês. Admin informa; os demais usam sempre o grupo da própria entidade. */
+  grupo: string;
   mes: number;
   ano: number;
   valorDiario: number;
@@ -144,6 +148,7 @@ export interface CriarVrMesInput {
 export interface EntidadeOpcao {
   id: string;
   nome: string;
+  grupo: string | null;
 }
 
 /** Status de fechamento de 1 entidade dentro de 1 mês. */
@@ -158,6 +163,7 @@ export interface StatusFechamentoEntidade {
 
 interface LinhaVrMes {
   id: string;
+  grupo: string;
   mes: number;
   ano: number;
   fechado: boolean;
@@ -195,7 +201,7 @@ async function buscarVrMesParaFechamento(
   vrMesId: string,
 ): Promise<LinhaVrMes | null> {
   const [linha] = await sql<LinhaVrMes[]>`
-    SELECT id, mes, ano, fechado,
+    SELECT id, grupo, mes, ano, fechado,
            valor_diario::float8          AS "valorDiario",
            valor_diario_aprendiz::float8 AS "valorDiarioAprendiz"
     FROM vr_mes
@@ -221,6 +227,7 @@ async function garantirProximoVrMes(
   sql: Sql,
   mesAtual: number,
   anoAtual: number,
+  grupo: string,
   valorDiario: number,
   valorDiarioAprendiz: number,
 ): Promise<{ id: string }> {
@@ -228,41 +235,42 @@ async function garantirProximoVrMes(
   const proximoAno = mesAtual === 12 ? anoAtual + 1 : anoAtual;
 
   const [existente] = await sql<{ id: string }[]>`
-    SELECT id FROM vr_mes WHERE mes = ${proximoMes} AND ano = ${proximoAno} LIMIT 1
+    SELECT id FROM vr_mes
+    WHERE mes = ${proximoMes} AND ano = ${proximoAno} AND grupo = ${grupo}
+    LIMIT 1
   `;
   if (existente) return existente;
 
   const [criado] = await sql<{ id: string }[]>`
-    INSERT INTO vr_mes (mes, ano, valor_diario, valor_diario_aprendiz)
-    VALUES (${proximoMes}, ${proximoAno}, ${valorDiario}, ${valorDiarioAprendiz})
+    INSERT INTO vr_mes (mes, ano, grupo, valor_diario, valor_diario_aprendiz)
+    VALUES (${proximoMes}, ${proximoAno}, ${grupo}, ${valorDiario}, ${valorDiarioAprendiz})
     RETURNING id
   `;
   return criado;
 }
 
 /**
- * Lista os usuários ativos elegíveis ao benefício. Passe entityId pra
- * restringir a 1 entidade (usado no fechamento/pré-visualização por
- * entidade); omitido = todo mundo.
+ * Lista os usuários ativos elegíveis ao benefício. `entityId` restringe a 1
+ * entidade; `grupo` restringe aos colaboradores de entidades daquele grupo
+ * (campo) — fechamento e pré-visualização sempre passam o grupo do mês.
  */
-async function listarUsuariosElegiveis(sql: Sql, entityId?: string): Promise<UsuarioElegivel[]> {
-  const linhas = entityId
-    ? await sql<
-        { id: string; nome: string; email: string; entityId: string; tipoFuncionario: string | null }[]
-      >`
-        SELECT id, nome, email, entity_id AS "entityId", tipo_funcionario AS "tipoFuncionario"
-        FROM users
-        WHERE is_active = TRUE AND participa_vr = TRUE AND entity_id = ${entityId}
-        ORDER BY nome
-      `
-    : await sql<
-        { id: string; nome: string; email: string; entityId: string; tipoFuncionario: string | null }[]
-      >`
-        SELECT id, nome, email, entity_id AS "entityId", tipo_funcionario AS "tipoFuncionario"
-        FROM users
-        WHERE is_active = TRUE AND participa_vr = TRUE
-        ORDER BY nome
-      `;
+async function listarUsuariosElegiveis(
+  sql: Sql,
+  entityId?: string,
+  grupo?: string,
+): Promise<UsuarioElegivel[]> {
+  const filtroEntidade = entityId ? sql`AND u.entity_id = ${entityId}` : sql``;
+  const filtroGrupo = grupo ? sql`AND e.grupo = ${grupo}` : sql``;
+  const linhas = await sql<
+    { id: string; nome: string; email: string; entityId: string; tipoFuncionario: string | null }[]
+  >`
+    SELECT u.id, u.nome, u.email, u.entity_id AS "entityId", u.tipo_funcionario AS "tipoFuncionario"
+    FROM users u
+    JOIN entities e ON e.id = u.entity_id
+    WHERE u.is_active = TRUE AND u.participa_vr = TRUE
+      ${filtroEntidade} ${filtroGrupo}
+    ORDER BY u.nome
+  `;
   return linhas.map((linha) => ({
     id: linha.id,
     nome: linha.nome,
@@ -299,19 +307,24 @@ export async function buscarVrMesInfo(
   return linha ?? null;
 }
 
-/** Lista todos os meses de VR cadastrados, mais recentes primeiro. */
-export async function listarVrMeses(): Promise<VrMesResumo[]> {
+/**
+ * Lista os meses de VR, mais recentes primeiro. `grupo` undefined = todos os
+ * grupos (só ADMIN); string/null = só daquele grupo.
+ */
+export async function listarVrMeses(grupo?: string | null): Promise<VrMesResumo[]> {
   const sql = getDatabase();
+  const filtro = grupo === undefined ? sql`` : sql`WHERE m.grupo = ${grupo}`;
   return sql<VrMesResumo[]>`
     SELECT
-      m.id, m.mes, m.ano, m.fechado,
+      m.id, m.grupo, m.mes, m.ano, m.fechado,
       m.valor_diario::float8          AS "valorDiario",
       m.valor_diario_aprendiz::float8 AS "valorDiarioAprendiz",
       COUNT(d.id)::int                AS "diasElegiveis"
     FROM vr_mes m
     LEFT JOIN vr_dia_elegivel d ON d.vr_mes_id = m.id
+    ${filtro}
     GROUP BY m.id
-    ORDER BY m.ano DESC, m.mes DESC
+    ORDER BY m.ano DESC, m.mes DESC, m.grupo
   `;
 }
 
@@ -328,23 +341,33 @@ export async function criarVrMes(input: CriarVrMesInput): Promise<VrMesResumo> {
   const sql = getDatabase();
 
   return sql.begin(async (sql: postgres.TransactionSql) => {
+    const [grupoValido] = await sql<{ ok: number }[]>`
+      SELECT 1 AS ok FROM entities WHERE grupo = ${input.grupo} AND participa_vr = TRUE LIMIT 1
+    `;
+    if (!grupoValido) {
+      throw new GrupoVrInvalidoError(input.grupo);
+    }
+
+    // Só 1 mês aberto por vez — POR GRUPO (cada grupo tem o seu).
     const [mesAberto] = await sql<{ mes: number; ano: number }[]>`
-      SELECT mes, ano FROM vr_mes WHERE fechado = FALSE LIMIT 1
+      SELECT mes, ano FROM vr_mes WHERE fechado = FALSE AND grupo = ${input.grupo} LIMIT 1
     `;
     if (mesAberto) {
-      throw new VrMesAbertoExistenteError(mesAberto.mes, mesAberto.ano);
+      throw new VrMesAbertoExistenteError(mesAberto.mes, mesAberto.ano, input.grupo);
     }
 
     const [existente] = await sql<{ id: string }[]>`
-      SELECT id FROM vr_mes WHERE mes = ${input.mes} AND ano = ${input.ano} LIMIT 1
+      SELECT id FROM vr_mes
+      WHERE mes = ${input.mes} AND ano = ${input.ano} AND grupo = ${input.grupo}
+      LIMIT 1
     `;
     if (existente) {
       throw new VrMesJaExisteError(input.mes, input.ano);
     }
 
     const [criado] = await sql<{ id: string }[]>`
-      INSERT INTO vr_mes (mes, ano, valor_diario, valor_diario_aprendiz)
-      VALUES (${input.mes}, ${input.ano}, ${input.valorDiario}, ${input.valorDiarioAprendiz})
+      INSERT INTO vr_mes (grupo, mes, ano, valor_diario, valor_diario_aprendiz)
+      VALUES (${input.grupo}, ${input.mes}, ${input.ano}, ${input.valorDiario}, ${input.valorDiarioAprendiz})
       RETURNING id
     `;
 
@@ -356,6 +379,7 @@ export async function criarVrMes(input: CriarVrMesInput): Promise<VrMesResumo> {
 
     return {
       id: criado.id,
+      grupo: input.grupo,
       mes: input.mes,
       ano: input.ano,
       fechado: false,
@@ -368,13 +392,28 @@ export async function criarVrMes(input: CriarVrMesInput): Promise<VrMesResumo> {
 
 /* ── Entidades ─────────────────────────────────────────────────────────── */
 
-/** Lista todas as entidades cadastradas (id/nome), pra dropdowns. */
-/** Lista as entidades que participam do VR (id/nome), pra dropdowns. */
-export async function listarEntidades(): Promise<EntidadeOpcao[]> {
+/**
+ * Lista as entidades que participam do VR (id/nome/grupo), pra dropdowns.
+ * `grupo` undefined = todas (só ADMIN); string/null = só daquele grupo.
+ */
+export async function listarEntidades(grupo?: string | null): Promise<EntidadeOpcao[]> {
   const sql = getDatabase();
+  const filtro = grupo === undefined ? sql`` : sql`AND grupo = ${grupo}`;
   return sql<EntidadeOpcao[]>`
-    SELECT id, nome FROM entities WHERE participa_vr = TRUE ORDER BY nome
+    SELECT id, nome, grupo FROM entities WHERE participa_vr = TRUE ${filtro} ORDER BY grupo, nome
   `;
+}
+
+/** Grupos que participam do VR (têm ao menos 1 entidade participando). */
+export async function listarGruposVr(grupo?: string | null): Promise<string[]> {
+  const sql = getDatabase();
+  const filtro = grupo === undefined ? sql`` : sql`AND grupo = ${grupo}`;
+  const linhas = await sql<{ grupo: string }[]>`
+    SELECT DISTINCT grupo FROM entities
+    WHERE participa_vr = TRUE AND grupo IS NOT NULL ${filtro}
+    ORDER BY grupo
+  `;
+  return linhas.map((l) => l.grupo);
 }
 
 /**
@@ -396,6 +435,7 @@ export async function listarStatusFechamentoPorEntidade(
     LEFT JOIN vr_fechamento_entidade vfe
       ON vfe.entity_id = e.id AND vfe.vr_mes_id = ${vrMesId}
     WHERE e.participa_vr = TRUE
+      AND e.grupo = (SELECT grupo FROM vr_mes WHERE id = ${vrMesId})
     ORDER BY e.nome
   `;
 }
@@ -546,25 +586,25 @@ export async function cancelarLancamento(id: string): Promise<void> {
  */
 export async function listarColaboradoresParaSelecao(
   entityId?: string,
-): Promise<{ id: string; nome: string; entityId: string }[]> {
+  grupo?: string | null,
+): Promise<{ id: string; nome: string; entityId: string; entityGrupo: string | null }[]> {
   const sql = getDatabase();
-  return entityId
-    ? sql<{ id: string; nome: string; entityId: string }[]>`
-        SELECT id, nome, entity_id AS "entityId" FROM users
-        WHERE is_active = TRUE AND participa_vr = TRUE AND entity_id = ${entityId}
-        ORDER BY nome
-      `
-    : sql<{ id: string; nome: string; entityId: string }[]>`
-        SELECT u.id, u.nome, u.entity_id AS "entityId"
-        FROM users u
-        JOIN entities e ON e.id = u.entity_id
-        WHERE u.is_active = TRUE AND u.participa_vr = TRUE AND e.participa_vr = TRUE
-        ORDER BY u.nome
-      `;
+  const filtroEntidade = entityId ? sql`AND u.entity_id = ${entityId}` : sql``;
+  const filtroGrupo = grupo === undefined ? sql`` : sql`AND e.grupo = ${grupo}`;
+  return sql<{ id: string; nome: string; entityId: string; entityGrupo: string | null }[]>`
+    SELECT u.id, u.nome, u.entity_id AS "entityId", e.grupo AS "entityGrupo"
+    FROM users u
+    JOIN entities e ON e.id = u.entity_id
+    WHERE u.is_active = TRUE AND u.participa_vr = TRUE AND e.participa_vr = TRUE
+      ${filtroEntidade} ${filtroGrupo}
+    ORDER BY u.nome
+  `;
 }
 
 /** Lançamento de VR com o mês/ano já resolvidos (visão geral, todos os meses). */
 export interface LancamentoVrDetalhado extends LancamentoVr {
+  /** Grupo (campo) do mês do lançamento. */
+  grupo: string;
   mes: number;
   ano: number;
 }
@@ -573,8 +613,11 @@ export interface LancamentoVrDetalhado extends LancamentoVr {
  * Lista TODOS os lançamentos (de todos os meses), mais recentes primeiro —
  * usado pela visão geral ("ver todos os lançamentos").
  */
-export async function listarTodosLancamentos(): Promise<LancamentoVrDetalhado[]> {
+export async function listarTodosLancamentos(
+  grupo?: string | null,
+): Promise<LancamentoVrDetalhado[]> {
   const sql = getDatabase();
+  const filtroGrupo = grupo === undefined ? sql`` : sql`WHERE m.grupo = ${grupo}`;
   const linhas = await sql<
     {
       id: string;
@@ -587,6 +630,7 @@ export async function listarTodosLancamentos(): Promise<LancamentoVrDetalhado[]>
       criadoPorNome: string | null;
       mes: number;
       ano: number;
+      grupo: string;
     }[]
   >`
     SELECT
@@ -594,11 +638,12 @@ export async function listarTodosLancamentos(): Promise<LancamentoVrDetalhado[]>
       l.tipo_lancamento AS "tipoLancamento", l.data_desconto AS "dataDesconto",
       l.motivo, l.desconto_aplicado AS "descontoAplicado",
       cp.nome AS "criadoPorNome",
-      m.mes, m.ano
+      m.mes, m.ano, m.grupo
     FROM vr_lancamento l
     JOIN users u ON u.id = l.user_id
     JOIN vr_mes m ON m.id = l.mes_descontar_valor_id
     LEFT JOIN users cp ON cp.id = l.criado_por
+    ${filtroGrupo}
     ORDER BY l.data_desconto DESC
   `;
   return linhas.map((l) => ({
@@ -624,6 +669,26 @@ export async function criarLancamentosEmLote(
 
   return sql.begin(async (sql: postgres.TransactionSql) => {
     const userIds = [...new Set(itens.map((i) => i.userId))];
+
+    // Só dá pra lançar pra quem é de uma entidade do MESMO grupo do mês.
+    const [mesDoLote] = await sql<{ grupo: string }[]>`
+      SELECT grupo FROM vr_mes WHERE id = ${vrMesId} LIMIT 1
+    `;
+    if (!mesDoLote) {
+      throw new VrMesNaoEncontradoError(vrMesId);
+    }
+    if (userIds.length > 0) {
+      const [fora] = await sql<{ nome: string }[]>`
+        SELECT u.nome FROM users u
+        LEFT JOIN entities e ON e.id = u.entity_id
+        WHERE u.id IN ${sql(userIds)} AND e.grupo IS DISTINCT FROM ${mesDoLote.grupo}
+        LIMIT 1
+      `;
+      if (fora) {
+        throw new LancamentoForaDoGrupoError(fora.nome, mesDoLote.grupo);
+      }
+    }
+
     const entidadesPorUsuario = await buscarEntidadesDosUsuarios(sql, userIds);
     const entityIdsEnvolvidos = [
       ...new Set([...entidadesPorUsuario.values()].map((e) => e.entityId)),
@@ -709,8 +774,8 @@ export async function preVisualizarFechamento(
 ): Promise<PreVisualizacaoResultado> {
   const sql = getDatabase();
 
-  const [vrMes] = await sql<{ valorDiario: number; valorDiarioAprendiz: number }[]>`
-    SELECT valor_diario::float8 AS "valorDiario", valor_diario_aprendiz::float8 AS "valorDiarioAprendiz"
+  const [vrMes] = await sql<{ grupo: string; valorDiario: number; valorDiarioAprendiz: number }[]>`
+    SELECT grupo, valor_diario::float8 AS "valorDiario", valor_diario_aprendiz::float8 AS "valorDiarioAprendiz"
     FROM vr_mes WHERE id = ${vrMesId} LIMIT 1
   `;
   if (!vrMes) {
@@ -718,7 +783,7 @@ export async function preVisualizarFechamento(
   }
 
   const diasBase = await contarDiasBase(sql, vrMesId);
-  const usuarios = await listarUsuariosElegiveis(sql, entityId);
+  const usuarios = await listarUsuariosElegiveis(sql, entityId, vrMes.grupo);
 
   const itens: PreVisualizacaoLinha[] = [];
   let totalBruto = 0;
@@ -786,14 +851,17 @@ export async function fecharVrPorEntidade(
       throw new VrMesNaoEncontradoError(vrMesId);
     }
 
-    const [entidade] = await sql<{ nome: string; participaVr: boolean }[]>`
-      SELECT nome, participa_vr AS "participaVr" FROM entities WHERE id = ${entityId} LIMIT 1
+    const [entidade] = await sql<{ nome: string; participaVr: boolean; grupo: string | null }[]>`
+      SELECT nome, participa_vr AS "participaVr", grupo FROM entities WHERE id = ${entityId} LIMIT 1
     `;
     if (!entidade) {
       throw new VrMesNaoEncontradoError(entityId);
     }
     if (!entidade.participaVr) {
       throw new EntidadeNaoParticipaVrError(entidade.nome);
+    }
+    if (entidade.grupo !== vrMes.grupo) {
+      throw new EntidadeForaDoGrupoError(entidade.nome, vrMes.grupo);
     }
 
     // Garante a linha de controle e trava ela (evita 2 fechamentos concorrentes da mesma entidade).
@@ -812,7 +880,7 @@ export async function fecharVrPorEntidade(
     }
 
     const diasBase = await contarDiasBase(sql, vrMesId);
-    const usuarios = await listarUsuariosElegiveis(sql, entityId);
+    const usuarios = await listarUsuariosElegiveis(sql, entityId, vrMes.grupo);
 
     let proximoMes: { id: string } | null = null;
     const garantirProximo = async () => {
@@ -821,6 +889,7 @@ export async function fecharVrPorEntidade(
           sql,
           vrMes.mes,
           vrMes.ano,
+          vrMes.grupo,
           vrMes.valorDiario,
           vrMes.valorDiarioAprendiz,
         );
@@ -903,6 +972,7 @@ export async function fecharVrPorEntidade(
       FROM users u
       JOIN entities e ON e.id = u.entity_id
       WHERE u.is_active = TRUE AND u.participa_vr = TRUE AND e.participa_vr = TRUE
+        AND e.grupo = ${vrMes.grupo}
     `;
     const [{ totalFechadas }] = await sql<{ totalFechadas: number }[]>`
       SELECT COUNT(*)::int AS "totalFechadas"
@@ -949,13 +1019,14 @@ export async function buscarVrMesDetalhado(vrMesId: string): Promise<VrMesDetalh
 
   const [vrMes] = await sql<{
     id: string;
+    grupo: string;
     mes: number;
     ano: number;
     fechado: boolean;
     valorDiario: number;
     valorDiarioAprendiz: number;
   }[]>`
-    SELECT id, mes, ano, fechado,
+    SELECT id, grupo, mes, ano, fechado,
            valor_diario::float8          AS "valorDiario",
            valor_diario_aprendiz::float8 AS "valorDiarioAprendiz"
     FROM vr_mes
@@ -1015,13 +1086,14 @@ export async function editarVrMes(vrMesId: string, input: EditarVrMesInput): Pro
       await sql`INSERT INTO vr_dia_elegivel (data, vr_mes_id) VALUES (${data}, ${vrMesId})`;
     }
 
-    const [atualizado] = await sql<{ mes: number; ano: number }[]>`
-      SELECT mes, ano FROM vr_mes WHERE id = ${vrMesId}
+    const [atualizado] = await sql<{ grupo: string; mes: number; ano: number }[]>`
+      SELECT grupo, mes, ano FROM vr_mes WHERE id = ${vrMesId}
     `;
 
     return {
       id: vrMesId,
       mes: atualizado.mes,
+      grupo: atualizado.grupo,
       ano: atualizado.ano,
       fechado: false,
       valorDiario: input.valorDiario,
@@ -1029,4 +1101,101 @@ export async function editarVrMes(vrMesId: string, input: EditarVrMesInput): Pro
       diasElegiveis: input.diasElegiveis.length,
     };
   });
+}
+
+/* ── Escopo por grupo (campo) ──────────────────────────────────────────── */
+
+/**
+ * O que a pessoa logada pode enxergar no VR: ADMIN vê todos os grupos; os
+ * demais só o grupo da PRÓPRIA entidade (users.entity_id → entities.grupo).
+ */
+export interface EscopoVr {
+  admin: boolean;
+  grupo: string | null;
+}
+
+/** Lançado quando a pessoa tenta mexer num mês de outro grupo. A rota converte isso num 403. */
+export class AcessoMesVrNegadoError extends Error {
+  constructor() {
+    super("Esse mês pertence a outro grupo — você só pode mexer no VR do seu grupo");
+    this.name = "AcessoMesVrNegadoError";
+  }
+}
+
+/** Lançado quando o usuário não tem entidade/grupo vinculado. A rota converte isso num 403. */
+export class SemGrupoVrError extends Error {
+  constructor() {
+    super("Seu usuário não está vinculado a uma entidade/grupo — peça pro RH ajustar o cadastro");
+    this.name = "SemGrupoVrError";
+  }
+}
+
+/** Lançado ao fechar uma entidade que não é do grupo do mês. A rota converte isso num 400. */
+export class EntidadeForaDoGrupoError extends Error {
+  constructor(entityNome: string, grupo: string) {
+    super(`${entityNome} não pertence ao grupo ${grupo} deste mês`);
+    this.name = "EntidadeForaDoGrupoError";
+  }
+}
+
+/** Lançado ao lançar desconto/extra pra alguém de outro grupo. A rota converte isso num 400. */
+export class LancamentoForaDoGrupoError extends Error {
+  constructor(userNome: string, grupo: string) {
+    super(`${userNome} não pertence ao grupo ${grupo} deste mês`);
+    this.name = "LancamentoForaDoGrupoError";
+  }
+}
+
+/** Lançado ao cadastrar um mês pra um grupo que não existe/não participa do VR. A rota converte isso num 400. */
+export class GrupoVrInvalidoError extends Error {
+  constructor(grupo: string) {
+    super(`O grupo ${grupo} não existe ou não participa do Vale-Refeição`);
+    this.name = "GrupoVrInvalidoError";
+  }
+}
+
+/** Resolve o escopo da pessoa logada (ADMIN = tudo; senão, o grupo da própria entidade). */
+export async function resolverEscopoVr(user: {
+  id: string;
+  papelCodigo?: string | null;
+}): Promise<EscopoVr> {
+  if (user.papelCodigo === "ADMIN") return { admin: true, grupo: null };
+  const sql = getDatabase();
+  const [linha] = await sql<{ grupo: string | null }[]>`
+    SELECT e.grupo FROM users u
+    JOIN entities e ON e.id = u.entity_id
+    WHERE u.id = ${user.id}
+    LIMIT 1
+  `;
+  return { admin: false, grupo: linha?.grupo ?? null };
+}
+
+/** Valor do filtro de grupo nas listagens: undefined = sem filtro (ADMIN); senão filtra pelo grupo (null = nada). */
+export function grupoDoEscopo(escopo: EscopoVr): string | null | undefined {
+  return escopo.admin ? undefined : escopo.grupo;
+}
+
+/** Garante que a pessoa pode mexer nesse mês (do grupo dela, ou ADMIN). Devolve o grupo do mês. */
+export async function garantirAcessoAoMes(vrMesId: string, escopo: EscopoVr): Promise<string> {
+  const sql = getDatabase();
+  const [mes] = await sql<{ grupo: string }[]>`
+    SELECT grupo FROM vr_mes WHERE id = ${vrMesId} LIMIT 1
+  `;
+  if (!mes) throw new VrMesNaoEncontradoError(vrMesId);
+  if (!escopo.admin && !escopo.grupo) throw new SemGrupoVrError();
+  if (!escopo.admin && mes.grupo !== escopo.grupo) throw new AcessoMesVrNegadoError();
+  return mes.grupo;
+}
+
+/** Garante que a pessoa pode cancelar esse lançamento (o mês dele é do grupo dela, ou ADMIN). */
+export async function garantirAcessoAoLancamento(id: string, escopo: EscopoVr): Promise<void> {
+  const sql = getDatabase();
+  const [linha] = await sql<{ grupo: string }[]>`
+    SELECT m.grupo FROM vr_lancamento l
+    JOIN vr_mes m ON m.id = l.mes_descontar_valor_id
+    WHERE l.id = ${id}
+    LIMIT 1
+  `;
+  if (!linha) return; // nada a cancelar — cancelarLancamento já trata como no-op
+  if (!escopo.admin && linha.grupo !== escopo.grupo) throw new AcessoMesVrNegadoError();
 }

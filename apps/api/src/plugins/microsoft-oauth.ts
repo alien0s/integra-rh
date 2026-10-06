@@ -1,11 +1,20 @@
 import oauthPlugin, { type OAuth2Namespace } from '@fastify/oauth2';
 import type { FastifyInstance } from 'fastify';
 
+import { rodaComoUsuario } from '../lib/database.js';
 import { findOrCreateUser } from '../lib/usuarios.js';
 import { signAuthToken } from '../lib/jwt.js';
 import { getMicrosoftUserAvatar, getMicrosoftUserInfo } from '../lib/microsoft.js';
 import type { AuthUser } from '../types/auth.js';
 import { getApiConfig } from './env.js';
+
+/**
+ * Identidade "de sistema" pro callback do SSO Microsoft — mesma razão de
+ * `USUARIO_SISTEMA_LOGIN` em auth.routes.ts: cria/atualiza a PRÓPRIA linha
+ * de quem está logando, antes de existir um JWT. Ver RLS em
+ * db/migrations/006_users.sql.
+ */
+const USUARIO_SISTEMA_LOGIN = { id: 'sistema:login-microsoft', papelCodigo: 'ADMIN' };
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -104,23 +113,25 @@ export async function microsoftOAuthPlugin(app: FastifyInstance) {
 
         const email = msUser.mail ?? msUser.userPrincipalName;
 
-        const dbUser = await findOrCreateUser({
-          email,
-          nome: msUser.displayName,
-          avatarUrl: avatar ?? null,
+        const token = await rodaComoUsuario(USUARIO_SISTEMA_LOGIN, async () => {
+          const dbUser = await findOrCreateUser({
+            email,
+            nome: msUser.displayName,
+            avatarUrl: avatar ?? null,
+          });
+
+          const authUser: AuthUser = {
+            id: dbUser.id,
+            email: dbUser.email,
+            nome: dbUser.nome,
+            avatar: dbUser.avatarUrl ?? undefined,
+            setor: dbUser.setor ?? undefined,
+            funcao: dbUser.funcao ?? undefined,
+            papelCodigo: dbUser.papelCodigo ?? undefined,
+          };
+
+          return signAuthToken(authUser);
         });
-
-        const authUser: AuthUser = {
-          id: dbUser.id,
-          email: dbUser.email,
-          nome: dbUser.nome,
-          avatar: dbUser.avatarUrl ?? undefined,
-          setor: dbUser.setor ?? undefined,
-          funcao: dbUser.funcao ?? undefined,
-          papelCodigo: dbUser.papelCodigo ?? undefined,
-        };
-
-        const token = signAuthToken(authUser);
 
         return reply.redirect(
           `${config.frontendUrl}/login?token=${encodeURIComponent(token)}`,

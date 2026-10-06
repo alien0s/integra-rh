@@ -204,6 +204,8 @@ export type OrigemFerias = "SOLICITACAO" | "REGISTRO_MANUAL";
 /** Solicitação com os dados do colaborador (para a Visão geral). */
 export interface SolicitacaoFeriasDTO {
   id: string;
+  /** FERIAS ou FOLGA — a Visão geral mistura os dois tipos na mesma lista. */
+  tipo: "FERIAS" | "FOLGA";
   /** ID do colaborador solicitante (para o front saber se é do próprio usuário). */
   userId: string;
   /** Papel do solicitante (define quem confirma: COORDENADOR DP ou RH). */
@@ -269,6 +271,14 @@ export interface FeriasResumoDTO {
   /** Exceções liberadas pelo DP pra esse colaborador — ver 024_ferias_excecoes.sql. */
   podeFracionarFerias: boolean;
   podeVenderFerias: boolean;
+  /**
+   * A entidade do colaborador pertence a um grupo que exige o período
+   * completo de 30 dias corridos (sem selecionar um período mais curto no
+   * calendário) — ver GRUPOS_EXIGEM_TRINTA_DIAS. `podeFracionarFerias`
+   * continua sendo uma exceção por cima disso: quem tem as duas, ainda
+   * pode escolher 10/15 dias pela aba "Fracionar em".
+   */
+  exigeTrintaDias: boolean;
 }
 
 /** Entrada para criar uma solicitação. */
@@ -283,6 +293,15 @@ export interface CriarSolicitacaoInput {
 
 /** Dias de férias por período aquisitivo (regra CLT padrão). */
 const DIAS_FERIAS_CICLO = 30;
+
+/**
+ * Grupos de entidade (`entities.grupo`, ver 001_entities.sql) cujos
+ * colaboradores só podem pedir o período completo de 30 dias corridos — o
+ * calendário do front trava a duração (ver exigeTrintaDias em
+ * getResumoFerias). Por enquanto só ACeAm; adicione outros grupos aqui
+ * conforme for pedido.
+ */
+const GRUPOS_EXIGEM_TRINTA_DIAS = new Set(["ACeAm"]);
 
 /**
  * Regras das exceções de fracionamento/venda (ver 024_ferias_excecoes.sql e
@@ -383,6 +402,7 @@ function paraDTO(linha: LinhaSolicitacao): SolicitacaoFeriasDTO {
   const fim = paraData(linha.data_fim) ?? inicio;
   return {
     id: linha.id,
+    tipo: linha.tipo,
     userId: linha.userId,
     solicitantePapel: linha.solicitantePapel ?? undefined,
     funcionarioNome: linha.funcionarioNome,
@@ -484,10 +504,18 @@ export async function getResumoFerias(userId: string): Promise<FeriasResumoDTO> 
   const sql = getDatabase();
 
   const [u] = await sql<
-    { data_admissao: unknown; pode_fracionar_ferias: boolean; pode_vender_ferias: boolean }[]
+    {
+      data_admissao: unknown;
+      pode_fracionar_ferias: boolean;
+      pode_vender_ferias: boolean;
+      entidade_grupo: string | null;
+    }[]
   >`
-    SELECT data_admissao, pode_fracionar_ferias, pode_vender_ferias
-    FROM users WHERE id = ${userId} LIMIT 1
+    SELECT u.data_admissao, u.pode_fracionar_ferias, u.pode_vender_ferias,
+           e.grupo AS entidade_grupo
+    FROM users u
+    LEFT JOIN entities e ON e.id = u.entity_id
+    WHERE u.id = ${userId} LIMIT 1
   `;
   const ciclo = cicloAquisitivoVigente(paraData(u?.data_admissao));
 
@@ -518,6 +546,7 @@ export async function getResumoFerias(userId: string): Promise<FeriasResumoDTO> 
   return {
     diasDisponiveis: Math.max(0, DIAS_FERIAS_CICLO - diasAgendados),
     diasAgendados,
+    exigeTrintaDias: Boolean(u?.entidade_grupo && GRUPOS_EXIGEM_TRINTA_DIAS.has(u.entidade_grupo)),
     podeFracionarFerias: u?.pode_fracionar_ferias ?? false,
     podeVenderFerias: u?.pode_vender_ferias ?? false,
     periodoAquisitivo: ciclo

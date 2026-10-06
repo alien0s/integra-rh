@@ -4,6 +4,7 @@ import type {
   CriarVrMesInput,
   EditarVrMesInput,
   EntidadeOpcao,
+  EscopoVr,
   FechamentoVrResultado,
   FormatoExportacaoVr,
   ItemLancamentoVr,
@@ -72,6 +73,14 @@ async function baixarComAutenticacao(
 }
 
 export const vrService = {
+  /** Escopo (grupo) da pessoa logada — decide se o cadastro de mês mostra o seletor de grupo. */
+  async getEscopo(): Promise<EscopoVr> {
+    const response = await fetch(`${API_URL}/vr/escopo`, { headers: authHeaders() })
+    if (!response.ok) return lancarErro(response, 'Falha ao buscar o escopo do VR')
+    const json = (await response.json()) as ApiResponse<EscopoVr>
+    return json.data
+  },
+
   async getEntidades(): Promise<EntidadeOpcao[]> {
     const response = await fetch(`${API_URL}/vr/entidades`, { headers: authHeaders() })
     if (!response.ok) return lancarErro(response, 'Falha ao buscar as entidades')

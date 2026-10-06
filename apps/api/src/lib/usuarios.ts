@@ -421,6 +421,50 @@ export interface UsuarioDetalhado {
 /** Linha crua retornada pela query (sem as iniciais, derivadas no JS). */
 type UsuarioRow = Omit<UsuarioDetalhado, "iniciais">;
 
+/**
+ * Papéis que veem os dados sensíveis de RH de QUALQUER usuário (CPF,
+ * salário, conta bancária, PIS, data de nascimento, sexo, estado civil,
+ * cidade/UF). Os demais papéis só veem esses campos no PRÓPRIO cadastro —
+ * ver `mascararCamposSensiveis`, aplicada em GET /usuarios e
+ * GET /usuarios/:usuarioId (usuarios.routes.ts).
+ */
+const PAPEIS_QUE_VEEM_DADOS_SENSIVEIS = new Set(["ADMIN", "RH", "DP"]);
+
+/**
+ * Zera os campos sensíveis de RH de `usuario` quando quem está vendo não é
+ * RH/DP/ADMIN nem o próprio dono do cadastro. Nome, e-mail, setor, função,
+ * entidade, telefone, gestor e papel continuam visíveis pra todo mundo —
+ * são dados de "catálogo interno", não financeiros/identificação.
+ */
+export function mascararCamposSensiveis(
+  usuario: UsuarioDetalhado,
+  requester: { id: string; papelCodigo?: string },
+): UsuarioDetalhado {
+  // `papelCodigo` undefined = auth desativada (modo dev, ver plugins/auth.ts)
+  // — passa livre, mesma convenção de `exigirPapeis`/`bloquearColaborador`.
+  const podeVerTudo =
+    usuario.id === requester.id ||
+    requester.papelCodigo === undefined ||
+    PAPEIS_QUE_VEEM_DADOS_SENSIVEIS.has(requester.papelCodigo);
+
+  if (podeVerTudo) return usuario;
+
+  return {
+    ...usuario,
+    cpf: null,
+    salario: null,
+    dataNascimento: null,
+    sexo: null,
+    estadoCivil: null,
+    cidade: null,
+    estado: null,
+    pis: null,
+    numeroBanco: null,
+    numeroConta: null,
+    digitoConta: null,
+  };
+}
+
 /** Deriva as iniciais (primeiro + último nome) para o fallback do avatar. */
 function gerarIniciais(nome: string): string {
   const partes = nome.trim().split(/\s+/).filter(Boolean);
@@ -528,6 +572,92 @@ export async function listUsuarios(): Promise<UsuarioDetalhado[]> {
   }));
 }
 
+/** Remove acentos, baixa a caixa e tira pontuação — pra comparar nomes sem
+ * ruído de grafia (ex.: "José" vs "jose", OCR trocando maiúsculas). */
+function normalizarNome(nome: string): string {
+  return nome
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z\s]/g, "")
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
+/** Distância de edição (Levenshtein) entre duas strings já normalizadas. */
+function distanciaLevenshtein(a: string, b: string): number {
+  const linhas = a.length + 1;
+  const colunas = b.length + 1;
+  const matriz: number[][] = Array.from({ length: linhas }, () => new Array(colunas).fill(0));
+
+  for (let i = 0; i < linhas; i++) matriz[i][0] = i;
+  for (let j = 0; j < colunas; j++) matriz[0][j] = j;
+
+  for (let i = 1; i < linhas; i++) {
+    for (let j = 1; j < colunas; j++) {
+      const custo = a[i - 1] === b[j - 1] ? 0 : 1;
+      matriz[i][j] = Math.min(
+        matriz[i - 1][j] + 1,
+        matriz[i][j - 1] + 1,
+        matriz[i - 1][j - 1] + custo,
+      );
+    }
+  }
+  return matriz[a.length][b.length];
+}
+
+/** 1 = nomes idênticos (já normalizados), 0 = completamente diferentes. */
+function similaridadeNomes(a: string, b: string): number {
+  const na = normalizarNome(a);
+  const nb = normalizarNome(b);
+  if (!na || !nb) return 0;
+  const maiorTamanho = Math.max(na.length, nb.length);
+  if (maiorTamanho === 0) return 1;
+  return 1 - distanciaLevenshtein(na, nb) / maiorTamanho;
+}
+
+/** Um candidato a usuário pra um nome detectado num documento (ver lib/ia/leitorDiploma.ts). */
+export interface CandidatoUsuario {
+  id: string;
+  nome: string;
+  setor: string;
+  fotoUrl: string;
+  /** 0 a 1 — 1 = nome idêntico. Acima de ~0.85 costuma ser a pessoa certa. */
+  score: number;
+}
+
+/**
+ * Sugere os usuários ativos cujo nome mais se parece com `nomeDetectado`
+ * (extraído de um diploma/certificado por IA) — comparação em memória por
+ * distância de edição, suficiente pro tamanho do quadro de funcionários
+ * (não precisa de busca fuzzy no banco, ex.: pg_trgm). Quem chama decide o
+ * limiar de confiança (a tela de revisão mostra os candidatos pro RH
+ * confirmar, nunca associa sozinho).
+ */
+export async function buscarUsuariosPorNomeAproximado(
+  nomeDetectado: string,
+  limite = 5,
+): Promise<CandidatoUsuario[]> {
+  const sql = getDatabase();
+  const candidatos = await sql<{ id: string; nome: string; setor: string; avatar_url: string }[]>`
+    SELECT u.id, u.nome, COALESCE(s.nome, '') AS setor, COALESCE(u.avatar_url, '') AS avatar_url
+    FROM users u
+    LEFT JOIN setor s ON s.id = u.setor_id
+    WHERE u.is_active
+  `;
+
+  return candidatos
+    .map((c) => ({
+      id: c.id,
+      nome: c.nome,
+      setor: c.setor,
+      fotoUrl: montarAvatarUrl(c.id, c.avatar_url),
+      score: similaridadeNomes(nomeDetectado, c.nome),
+    }))
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limite);
+}
+
 /**
  * Busca um usuário pelo id. Retorna null se não existir.
  */
@@ -585,8 +715,12 @@ export async function listFuncoes(): Promise<OpcaoSelecao[]> {
 }
 
 /** Campos editáveis de um usuário. */
+/**
+ * Campos editáveis via PATCH /usuarios/:usuarioId. CPF não está aqui de
+ * propósito — só o sistema legado escreve CPF (ver
+ * inserirUsuarioComLegado/preencherDadosLegadoSeVazio).
+ */
 export interface AtualizarUsuarioInput {
-  cpf: string | null;
   telefone: string | null;
   setorId: string | null;
   entidadeId: string | null;
@@ -627,9 +761,10 @@ export async function atualizarUsuario(
 
   const roleId = await resolverRoleId(sql, input.roleCodigo);
 
+  // CPF não entra aqui de propósito — só o legado escreve (ver
+  // inserirUsuarioComLegado/preencherDadosLegadoSeVazio abaixo).
   const updated = await sql`
     UPDATE users SET
-      cpf           = ${input.cpf},
       entity_id     = ${input.entidadeId},
       telefone      = ${input.telefone},
       setor_id      = ${input.setorId},
@@ -847,17 +982,19 @@ export async function findOrCreateUsuarioLocal(email: string): Promise<AppUser> 
 }
 
 /**
- * Atualização do próprio perfil (self-service): mexe SÓ em cpf e telefone.
- * Não toca em setor/função/papéis — diferente de atualizarUsuario (RH).
+ * Atualização do próprio perfil (self-service): mexe SÓ em telefone. Não
+ * toca em setor/função/papéis — diferente de atualizarUsuario (RH). CPF não
+ * é editável em lugar nenhum (nem aqui, nem em atualizarUsuario) — só o
+ * sistema legado escreve CPF (ver inserirUsuarioComLegado abaixo).
  */
 export async function atualizarPerfilProprio(
   id: string,
-  input: { cpf: string | null; telefone: string | null },
+  input: { telefone: string | null },
 ): Promise<UsuarioDetalhado | null> {
   const sql = getDatabase();
 
   const updated = await sql`
-    UPDATE users SET cpf = ${input.cpf}, telefone = ${input.telefone}
+    UPDATE users SET telefone = ${input.telefone}
     WHERE id = ${id}
   `;
 

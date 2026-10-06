@@ -13,9 +13,11 @@ import {
   DrawerTrigger,
 } from '@/components/ui/drawer'
 
+import { abrirDetalheQualificacao } from '@/features/cursos/lib/detalheQualificacaoStore'
 import { useNotificacoes } from '@/features/notificacoes/hooks'
 import { useNotificacaoToasts } from '@/features/notificacoes/hooks/useNotificacaoToasts'
 import { NotificacaoItem } from '@/features/notificacoes/components/NotificacaoItem'
+import { ehNotificacaoDeQualificacao } from '@/features/notificacoes/lib/anexoNotificacao'
 import { ROTA_POR_TIPO_OBRIGACAO, type Notificacao } from '@/features/notificacoes/types'
 
 /**
@@ -34,27 +36,32 @@ export function NotificacoesDrawer() {
   const [aberto, setAberto] = useState(false)
   const navigate = useNavigate()
 
-  // Clicar no corpo de uma notificação de férias (evento) fecha o drawer e
-  // vai pra /ferias (os botões Aprovar/Recusar têm o clique isolado — não
-  // navegam). Usado pelos toasts acionáveis, que hoje são sempre de férias.
-  function abrirFerias() {
-    setAberto(false)
-    navigate('/ferias')
-  }
-
-  // Generaliza pra notificações de obrigação recorrente (tipo prefixado
-  // "OBRIGACAO_" — ver lib/obrigacoes.ts no backend): cada tipo pode ter sua
-  // própria rota (ROTA_POR_TIPO_OBRIGACAO); sem entrada no mapa, cai no
-  // comportamento de sempre (férias).
+  // Clicar no corpo de uma notificação: férias (evento) vai pra /ferias;
+  // obrigação recorrente (tipo prefixado "OBRIGACAO_") segue o mapa
+  // ROTA_POR_TIPO_OBRIGACAO; qualificação (formação/curso/idioma cadastrados)
+  // vai pra /cursos E abre o DetalheQualificacaoDialog (store global — ver
+  // abrirDetalheQualificacao; o dialog é montado uma vez em App.tsx, não
+  // aqui, porque esta navegação desmonta este componente antes de o estado
+  // "local" ter chance de ser lido). Os botões Aprovar/Recusar, dentro do
+  // cartão, têm clique isolado — não disparam esta navegação.
   function abrirNotificacao(notificacao: Notificacao) {
-    const rota = notificacao.tipo ? ROTA_POR_TIPO_OBRIGACAO[notificacao.tipo] : undefined
     setAberto(false)
+    if (ehNotificacaoDeQualificacao(notificacao)) {
+      abrirDetalheQualificacao({
+        referenciaTabela: notificacao.referenciaTabela,
+        referenciaId: notificacao.referenciaId,
+        nomeFuncionario: notificacao.nome,
+      })
+      navigate('/cursos')
+      return
+    }
+    const rota = notificacao.tipo ? ROTA_POR_TIPO_OBRIGACAO[notificacao.tipo] : undefined
     navigate(rota ?? '/ferias')
   }
 
   // Ao carregar (login/app), mostra as acionáveis como toasts (Sonner) com os
   // botões de aprovar/recusar — sem precisar abrir o drawer.
-  useNotificacaoToasts(notificacoes, aprovar, recusar, abrirFerias, marcarComoLida)
+  useNotificacaoToasts(notificacoes, aprovar, recusar, abrirNotificacao, marcarComoLida)
 
   return (
     <Drawer direction="right" open={aberto} onOpenChange={setAberto}>
@@ -64,6 +71,11 @@ export function NotificacoesDrawer() {
           size="icon"
           className="relative h-8 w-8 text-muted-foreground"
           aria-label="Notificações"
+          // Tira o foco do próprio botão antes do drawer abrir — sem isso, o
+          // Radix marca este botão (ainda focado) como aria-hidden ao abrir o
+          // portal, e o Chrome acusa "Blocked aria-hidden on an element
+          // because its descendant retained focus" no console.
+          onClick={(event) => event.currentTarget.blur()}
         >
           <Bell className="h-5 w-5" />
           {naoLidas > 0 ? (

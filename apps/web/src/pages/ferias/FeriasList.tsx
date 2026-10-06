@@ -57,7 +57,7 @@ export function FeriasList() {
       <AppLayout
         title="Férias"
         description="Home / Gestão de Pessoas / Férias"
-        actions={
+        tabs={
           <TabsList className="h-9">
             <TabsTrigger value="visao-geral" className="px-5">
               <Grid2x2Check className="mr-2 h-4 w-4" />

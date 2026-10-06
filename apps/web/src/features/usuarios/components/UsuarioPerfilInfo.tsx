@@ -10,6 +10,8 @@ import {
   CalendarX,
   CheckCircle2,
   Clock,
+  Eye,
+  EyeOff,
   Fingerprint,
   Hash,
   Heart,
@@ -23,6 +25,7 @@ import {
   Wallet
 } from 'lucide-react'
 
+import { Button } from '@/components/ui/button'
 import {
   Tooltip,
   TooltipContent,
@@ -41,7 +44,16 @@ interface InfoItem {
   value?: string
   /** Permite copiar o valor para a área de transferência ao clicar. */
   copiavel?: boolean
+  /**
+   * Dado sensível (CPF, PIS, conta bancária, salário, telefone) — fica
+   * escondido atrás de "••••••" até a pessoa clicar no olhinho. A
+   * preferência nunca é lembrada: cada vez que o perfil é aberto, começa
+   * oculto de novo (sem estado salvo em lugar nenhum).
+   */
+  sensivel?: boolean
 }
+
+const MASCARA_SENSIVEL = '••••••'
 
 const moedaBRL = new Intl.NumberFormat('pt-BR', {
   style: 'currency',
@@ -56,11 +68,19 @@ const TIPO_FUNCIONARIO_LABEL: Record<string, string> = {
 
 /**
  * Bloco de informações do perfil do funcionário, com ícones.
- * Os campos espelham a tabela `users` do banco. E-mail, telefone e CPF
- * podem ser copiados ao clicar, com notificação no tooltip.
+ * Os campos espelham a tabela `users` do banco. E-mail, telefone, CPF, PIS,
+ * conta bancária e código APS podem ser copiados ao clicar, com notificação
+ * no tooltip.
+ *
+ * Telefone, CPF, PIS, conta bancária e salário são "sensíveis": ficam atrás
+ * de "••••••" até clicar no olhinho (canto superior direito) — sempre
+ * começam ocultos, sem lembrar a preferência de uma visita pra outra.
  */
 export function UsuarioPerfilInfo({ usuario }: UsuarioPerfilInfoProps) {
   const [copiado, setCopiado] = useState<string | null>(null)
+  // Sempre começa oculto (sem persistência) — é a pessoa quem decide revelar
+  // a cada visita ao perfil, nunca uma preferência lembrada.
+  const [mostrarSensivel, setMostrarSensivel] = useState(false)
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
@@ -115,12 +135,14 @@ export function UsuarioPerfilInfo({ usuario }: UsuarioPerfilInfoProps) {
       label: 'Telefone',
       value: usuario.telefone ? mascararTelefone(usuario.telefone) : undefined,
       copiavel: true,
+      sensivel: true,
     },
     {
       icon: Fingerprint,
       label: 'CPF',
       value: usuario.cpf ? mascararCpf(usuario.cpf) : undefined,
       copiavel: true,
+      sensivel: true,
     },
     { icon: Cake, label: 'Nascimento', value: usuario.dataNascimento ?? undefined },
     {
@@ -146,6 +168,7 @@ export function UsuarioPerfilInfo({ usuario }: UsuarioPerfilInfoProps) {
       label: 'PIS',
       value: usuario.pis ?? undefined,
       copiavel: true,
+      sensivel: true,
     },
     {
       icon: Landmark,
@@ -154,6 +177,7 @@ export function UsuarioPerfilInfo({ usuario }: UsuarioPerfilInfoProps) {
         ? `${usuario.numeroBanco ? `${usuario.numeroBanco} • ` : ''}${usuario.numeroConta}${usuario.digitoConta ? `-${usuario.digitoConta}` : ''}`
         : undefined,
       copiavel: true,
+      sensivel: true,
     },
     { icon: Briefcase, label: 'Função', value: usuario.funcao },
     { icon: Building2, label: 'Setor', value: usuario.setor },
@@ -168,6 +192,7 @@ export function UsuarioPerfilInfo({ usuario }: UsuarioPerfilInfoProps) {
       icon: Wallet,
       label: 'Salário',
       value: usuario.salario != null ? moedaBRL.format(usuario.salario) : undefined,
+      sensivel: true,
     },
     { icon: CalendarCheck, label: 'Admissão', value: usuario.dataAdmissao },
     { icon: CalendarX, label: 'Demissão', value: usuario.dataDemissao },
@@ -188,44 +213,78 @@ export function UsuarioPerfilInfo({ usuario }: UsuarioPerfilInfoProps) {
   ]
 
   const visibleItems = items.filter((item) => Boolean(item.value))
+  const temDadoSensivel = visibleItems.some((item) => item.sensivel)
 
   return (
-    <div className="grid grid-cols-1 gap-x-6 gap-y-5 sm:grid-cols-2">
-      {visibleItems.map(({ icon: Icon, label, value, copiavel }) => (
-        <div key={label} className="flex items-start gap-3">
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
-            <Icon className="h-4 w-4" />
-          </div>
-          <div className="min-w-0">
-            <p className="text-xs text-muted-foreground">{label}</p>
-            {copiavel ? (
-              <Tooltip className="block min-w-0 max-w-full">
-                <TooltipTrigger>
-                  <button
-                    type="button"
-                    onClick={() => copiar(label, value as string)}
-                    className="block w-full truncate text-left text-sm font-medium hover:underline"
-                  >
-                    {value}
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent side="top">
-                  {copiado === label ? (
-                    <span className="flex items-center gap-1">
-                      <CheckCircle2 className="h-3.5 w-3.5 text-green-500" />
-                      Copiado!
-                    </span>
-                  ) : (
-                    'Copiar'
-                  )}
-                </TooltipContent>
-              </Tooltip>
-            ) : (
-              <p className="truncate text-sm font-medium">{value}</p>
-            )}
-          </div>
+    <div className="flex flex-col gap-4">
+      {temDadoSensivel && (
+        <div className="flex justify-end">
+          <Tooltip>
+            <TooltipTrigger>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 text-muted-foreground"
+                onClick={() => setMostrarSensivel((v) => !v)}
+              >
+                {mostrarSensivel ? (
+                  <EyeOff className="h-4 w-4" />
+                ) : (
+                  <Eye className="h-4 w-4" />
+                )}
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="top">
+              {mostrarSensivel ? 'Ocultar dados sensíveis' : 'Mostrar dados sensíveis'}
+            </TooltipContent>
+          </Tooltip>
         </div>
-      ))}
+      )}
+      <div className="grid grid-cols-1 gap-x-6 gap-y-5 sm:grid-cols-2">
+        {visibleItems.map(({ icon: Icon, label, value, copiavel, sensivel }) => {
+          const oculto = Boolean(sensivel) && !mostrarSensivel
+          return (
+            <div key={label} className="flex items-start gap-3">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+                <Icon className="h-4 w-4" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-xs text-muted-foreground">{label}</p>
+                {oculto ? (
+                  <p className="truncate text-sm font-medium tracking-widest text-muted-foreground">
+                    {MASCARA_SENSIVEL}
+                  </p>
+                ) : copiavel ? (
+                  <Tooltip className="block min-w-0 max-w-full">
+                    <TooltipTrigger>
+                      <button
+                        type="button"
+                        onClick={() => copiar(label, value as string)}
+                        className="block w-full truncate text-left text-sm font-medium hover:underline"
+                      >
+                        {value}
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="top">
+                      {copiado === label ? (
+                        <span className="flex items-center gap-1">
+                          <CheckCircle2 className="h-3.5 w-3.5 text-green-500" />
+                          Copiado!
+                        </span>
+                      ) : (
+                        'Copiar'
+                      )}
+                    </TooltipContent>
+                  </Tooltip>
+                ) : (
+                  <p className="truncate text-sm font-medium">{value}</p>
+                )}
+              </div>
+            </div>
+          )
+        })}
+      </div>
     </div>
   )
 }

@@ -1,4 +1,4 @@
-import { AlertTriangle, FileText, GraduationCap, Paperclip, type LucideIcon } from 'lucide-react'
+import { AlertTriangle, Coffee, FileText, GraduationCap, Paperclip, type LucideIcon } from 'lucide-react'
 
 import {
   Card,
@@ -15,6 +15,7 @@ const iconePorTipo: Record<AtividadeUsuario['icone'], LucideIcon> = {
   documento: FileText,
   curso: GraduationCap,
   obrigacao: AlertTriangle,
+  folga: Coffee,
 }
 
 interface AtividadesRecentesCardProps {
@@ -23,10 +24,18 @@ interface AtividadesRecentesCardProps {
 }
 
 /**
- * Card lateral com as atividades recentes do usuário no perfil — ações que
- * ELE realizou no sistema (aprovou/recusou/solicitou algo), não notificações
- * que recebeu. Vem da mesma tabela de notificações (ver
- * lib/notificacoes.ts#listAtividadesUsuario), filtrada por quem foi o ator.
+ * Card lateral com as atividades recentes do usuário no perfil — o que ELE
+ * fez no sistema (aprovou/recusou/solicitou algo) E o que aconteceu pra ele
+ * (uma decisão de outra pessoa, ex.: "Ana aprovou sua formação acadêmica").
+ * Vem da mesma tabela de notificações (ver
+ * lib/notificacoes.ts#listAtividadesUsuario). Vendo o perfil de outra pessoa,
+ * o backend já filtra pra só trazer atividades com RH/DP envolvido.
+ *
+ * As frases de `acao` são escritas na 2ª pessoa em relação ao dono do perfil
+ * (ex.: "confirmou suas férias"), então: quando `euFizFoi` é true, a frase já
+ * lê corretamente sozinha ("confirmou suas férias" — de quem, mostrado embaixo);
+ * quando é false, a contraparte vira sujeito da frase ("Ana confirmou suas
+ * férias").
  */
 export function AtividadesRecentesCard({ usuarioId }: AtividadesRecentesCardProps) {
   const { atividades, isLoading, error } = useAtividadesUsuario(usuarioId)
@@ -56,11 +65,14 @@ export function AtividadesRecentesCard({ usuarioId }: AtividadesRecentesCardProp
                   </div>
                   <div className="min-w-0">
                     <p className="text-sm font-medium leading-5">
+                      {atividade.euFizFoi ? '' : `${atividade.contraparteNome} `}
                       {atividade.acao}
                       {atividade.detalhe ? ` — ${atividade.detalhe}` : ''}
                     </p>
                     <p className="text-sm text-muted-foreground">
-                      {atividade.destinatarioNome} • {atividade.tempo}
+                      {atividade.euFizFoi
+                        ? `${atividade.contraparteNome} • ${atividade.tempo}`
+                        : atividade.tempo}
                     </p>
                   </div>
                 </div>

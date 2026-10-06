@@ -194,3 +194,131 @@ CREATE TRIGGER qualificacoes_idiomas_updated_at_trigger
 BEFORE UPDATE ON qualificacoes_idiomas
 FOR EACH ROW
 EXECUTE FUNCTION qualificacoes_set_updated_at();
+
+-- ──────────────────────────────────────────────────────────────────────────
+-- Row Level Security — mesma lógica de ferias_solicitacoes (008_ferias.sql,
+-- ver o comentário completo lá sobre por quê/como). 2ª tabela do piloto —
+-- igual férias, a API conecta sempre como `erpuser` (dono das tabelas), e
+-- abre uma transação por requisição com `set_config('app.user_id'/'app.papel',
+-- ..., true)` via `rodaComoUsuario` (apps/api/src/lib/database.ts), usado em
+-- todo handler de qualificacoes.routes.ts. O `GET /notificacoes` já estava
+-- coberto (mesmo wrapper, por causa do JOIN com ferias_solicitacoes) — o
+-- JOIN dele com estas 3 tabelas (ver listNotificacoes em lib/notificacoes.ts)
+-- se beneficia de graça, sem precisar mexer em notificacoes.routes.ts de novo.
+--
+-- Regra própria deste módulo (diferente de férias): um registro APROVADO é
+-- público pra QUALQUER autenticado (perfil de outra pessoa mostra diplomas/
+-- cursos/idiomas já aprovados — ver "visão pública" em
+-- qualificacoes.routes.ts). PENDENTE/RECUSADO só o dono e RH/ADMIN veem —
+-- por isso a policy de leitura tem uma 3ª condição (`status = 'APROVADO'`)
+-- que não depende de identidade nenhuma.
+--
+-- FORCE em todas — sem isso o dono da tabela (erpuser, a própria conexão da
+-- API) ignora o RLS inteiro (ver aviso em 008_ferias.sql).
+
+ALTER TABLE qualificacoes_academicas ENABLE ROW LEVEL SECURITY;
+ALTER TABLE qualificacoes_academicas FORCE ROW LEVEL SECURITY;
+ALTER TABLE qualificacoes_cursos ENABLE ROW LEVEL SECURITY;
+ALTER TABLE qualificacoes_cursos FORCE ROW LEVEL SECURITY;
+ALTER TABLE qualificacoes_idiomas ENABLE ROW LEVEL SECURITY;
+ALTER TABLE qualificacoes_idiomas FORCE ROW LEVEL SECURITY;
+
+/* ── qualificacoes_academicas ────────────────────────────────────────────── */
+
+CREATE POLICY qualificacoes_academicas_leitura ON qualificacoes_academicas
+  FOR SELECT
+  USING (
+    user_id::text = current_setting('app.user_id', true)
+    OR current_setting('app.papel', true) = ANY (ARRAY['ADMIN', 'RH'])
+    OR status = 'APROVADO'
+  );
+
+-- Criar: só o próprio dono (não existe "RH cadastra em nome de alguém" aqui,
+-- diferente do registro manual de férias).
+CREATE POLICY qualificacoes_academicas_criar ON qualificacoes_academicas
+  FOR INSERT
+  WITH CHECK (user_id::text = current_setting('app.user_id', true));
+
+-- Atualizar (aprovar/recusar do RH, ou o dono anexando/removendo o diploma).
+CREATE POLICY qualificacoes_academicas_atualizar ON qualificacoes_academicas
+  FOR UPDATE
+  USING (
+    user_id::text = current_setting('app.user_id', true)
+    OR current_setting('app.papel', true) = ANY (ARRAY['ADMIN', 'RH'])
+  )
+  WITH CHECK (
+    user_id::text = current_setting('app.user_id', true)
+    OR current_setting('app.papel', true) = ANY (ARRAY['ADMIN', 'RH'])
+  );
+
+-- Excluir: dono ou RH/ADMIN (ver excluirFormacao em lib/qualificacoes.ts).
+CREATE POLICY qualificacoes_academicas_excluir ON qualificacoes_academicas
+  FOR DELETE
+  USING (
+    user_id::text = current_setting('app.user_id', true)
+    OR current_setting('app.papel', true) = ANY (ARRAY['ADMIN', 'RH'])
+  );
+
+/* ── qualificacoes_cursos ────────────────────────────────────────────────── */
+
+CREATE POLICY qualificacoes_cursos_leitura ON qualificacoes_cursos
+  FOR SELECT
+  USING (
+    user_id::text = current_setting('app.user_id', true)
+    OR current_setting('app.papel', true) = ANY (ARRAY['ADMIN', 'RH'])
+    OR status = 'APROVADO'
+  );
+
+CREATE POLICY qualificacoes_cursos_criar ON qualificacoes_cursos
+  FOR INSERT
+  WITH CHECK (user_id::text = current_setting('app.user_id', true));
+
+CREATE POLICY qualificacoes_cursos_atualizar ON qualificacoes_cursos
+  FOR UPDATE
+  USING (
+    user_id::text = current_setting('app.user_id', true)
+    OR current_setting('app.papel', true) = ANY (ARRAY['ADMIN', 'RH'])
+  )
+  WITH CHECK (
+    user_id::text = current_setting('app.user_id', true)
+    OR current_setting('app.papel', true) = ANY (ARRAY['ADMIN', 'RH'])
+  );
+
+CREATE POLICY qualificacoes_cursos_excluir ON qualificacoes_cursos
+  FOR DELETE
+  USING (
+    user_id::text = current_setting('app.user_id', true)
+    OR current_setting('app.papel', true) = ANY (ARRAY['ADMIN', 'RH'])
+  );
+
+/* ── qualificacoes_idiomas ───────────────────────────────────────────────── */
+
+CREATE POLICY qualificacoes_idiomas_leitura ON qualificacoes_idiomas
+  FOR SELECT
+  USING (
+    user_id::text = current_setting('app.user_id', true)
+    OR current_setting('app.papel', true) = ANY (ARRAY['ADMIN', 'RH'])
+    OR status = 'APROVADO'
+  );
+
+CREATE POLICY qualificacoes_idiomas_criar ON qualificacoes_idiomas
+  FOR INSERT
+  WITH CHECK (user_id::text = current_setting('app.user_id', true));
+
+CREATE POLICY qualificacoes_idiomas_atualizar ON qualificacoes_idiomas
+  FOR UPDATE
+  USING (
+    user_id::text = current_setting('app.user_id', true)
+    OR current_setting('app.papel', true) = ANY (ARRAY['ADMIN', 'RH'])
+  )
+  WITH CHECK (
+    user_id::text = current_setting('app.user_id', true)
+    OR current_setting('app.papel', true) = ANY (ARRAY['ADMIN', 'RH'])
+  );
+
+CREATE POLICY qualificacoes_idiomas_excluir ON qualificacoes_idiomas
+  FOR DELETE
+  USING (
+    user_id::text = current_setting('app.user_id', true)
+    OR current_setting('app.papel', true) = ANY (ARRAY['ADMIN', 'RH'])
+  );

@@ -39,8 +39,8 @@ export function useNotificacaoToasts(
   notificacoes: Notificacao[],
   aprovar: (id: string) => Promise<void> | void,
   recusar: (id: string, motivo: string) => Promise<void> | void,
-  /** Clicar no corpo do toast (não nos botões) — ex.: ir pra /ferias. */
-  onAbrir?: () => void,
+  /** Clicar no corpo do toast (não nos botões) — decide a rota/dialog pelo tipo da notificação. */
+  onAbrir?: (notificacao: Notificacao) => void,
   /** Marca a notificação como lida (ao clicar no corpo do toast). */
   onMarcarLida?: (id: string) => void,
 ) {
@@ -79,7 +79,7 @@ export function useNotificacaoToasts(
                 abrirRef.current
                   ? () => {
                       marcarLidaRef.current?.(n.id)
-                      abrirRef.current?.()
+                      abrirRef.current?.(n)
                       toast.dismiss(t)
                     }
                   : undefined

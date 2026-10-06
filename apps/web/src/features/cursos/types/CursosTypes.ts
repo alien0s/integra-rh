@@ -7,6 +7,16 @@
 
 export type StatusQualificacao = 'PENDENTE' | 'APROVADO' | 'RECUSADO'
 
+/**
+ * Nome da tabela de origem de uma qualificação — mesmo valor usado em
+ * `notificacoes.referencia_tabela` no backend. Usado pra saber qual tipo de
+ * registro (e qual layout) mostrar no DetalheQualificacaoDialog.
+ */
+export type TabelaQualificacao =
+  | 'qualificacoes_academicas'
+  | 'qualificacoes_cursos'
+  | 'qualificacoes_idiomas'
+
 /* ── Formação acadêmica ── */
 
 export type NivelFormacao =

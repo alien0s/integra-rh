@@ -2,6 +2,7 @@ import { Fragment, useState, type ReactNode } from "react"
 import { Link } from "react-router-dom"
 import { Search } from "lucide-react"
 
+import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { CommandPalette } from "@/features/app/components/CommandPalette"
 import { NotificacoesDrawer } from "@/features/notificacoes/components"
@@ -20,6 +21,14 @@ export interface AppHeaderProps {
   title: string
   description?: string
   actions?: ReactNode
+  /**
+   * Abas de navegação da página (ex.: Visão geral/Pessoal/Feriados em
+   * /ferias). No desktop (sm+) ficam INLINE com busca/ações/sino, igual
+   * sempre foi — só no mobile (<sm) ganham uma linha própria abaixo, porque
+   * aí não cabe tudo numa linha só (ver o bloco "só mobile" no fim do
+   * header).
+   */
+  tabs?: ReactNode
   className?: string
   breadcrumbs?: AppHeaderBreadcrumbItem[]
 }
@@ -32,6 +41,7 @@ export interface AppHeaderBreadcrumbItem {
 export function AppHeader({
   title,
   actions,
+  tabs,
   className,
   breadcrumbs,
 }: AppHeaderProps) {
@@ -41,9 +51,7 @@ export function AppHeader({
   return (
     <>
     <header className="sticky top-0 z-10 border-b bg-card">
-      <div
-        className={`flex min-h-16 flex-col items-start justify-center gap-3 py-4 sm:flex-row sm:items-center sm:justify-between sm:py-0 ${className}`}
-      >
+      <div className={`flex min-h-16 items-center justify-between gap-3 py-3 ${className}`}>
         <div className="flex min-w-0 items-center gap-3">
           <Tooltip className="md:hidden -ml-2">
             <TooltipTrigger asChild>
@@ -90,8 +98,11 @@ export function AppHeader({
           </div>
         </div>
 
-        <div className="flex w-full shrink-0 items-center justify-end gap-4 overflow-x-auto sm:overflow-visible sm:w-auto">
-          <div className="relative w-full sm:w-56">
+        <div className="flex shrink-0 items-center justify-end gap-4">
+          {/* Busca: input completo só no desktop (lg+); ícone no mobile E no
+              tablet, porque o input não cabe mais na mesma linha junto com
+              as abas/sino sem forçar scroll nessas larguras. */}
+          <div className="relative hidden lg:block lg:w-56">
             <Search className="absolute left-2.5 top-2 h-4 w-4 text-muted-foreground" />
             <Input
               type="search"
@@ -102,6 +113,28 @@ export function AppHeader({
               className="h-8 cursor-pointer bg-background pl-8 shadow-none"
             />
           </div>
+          <Tooltip className="lg:hidden">
+            <TooltipTrigger asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 text-muted-foreground"
+                aria-label="Pesquisar"
+                onClick={() => setBuscaAberta(true)}
+              >
+                <Search className="h-4 w-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">Pesquisar</TooltipContent>
+          </Tooltip>
+
+          {/* Abas: só no desktop (lg+) ficam INLINE aqui (display:contents —
+              o wrapper não gera caixa própria, os filhos entram direto nesta
+              linha, igual sempre foi). No mobile/tablet ficam escondidas
+              aqui; aparecem só na linha própria no fim do header. */}
+          {tabs ? <div className="hidden lg:contents">{tabs}</div> : null}
+
           {actions ? actions : null}
           <div className="flex items-center gap-4">
             {/* Pipe sempre presente no header (separa busca/ações das notificações). */}
@@ -110,6 +143,16 @@ export function AppHeader({
           </div>
         </div>
       </div>
+
+      {/* Só mobile/tablet (<lg): abas numa linha própria, cheia — no desktop
+          (lg+) elas já aparecem inline acima (display:contents), então este
+          bloco fica escondido. overflow-y-hidden trava o scroll vertical que
+          o overflow-x-auto força (CSS pareia visible→auto nos dois eixos). */}
+      {tabs ? (
+        <div className="scrollbar-thin w-full overflow-x-auto overflow-y-hidden px-4 py-2 lg:hidden">
+          {tabs}
+        </div>
+      ) : null}
     </header>
 
       <CommandPalette open={buscaAberta} onOpenChange={setBuscaAberta} />

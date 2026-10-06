@@ -10,7 +10,7 @@
 module.exports = {
   apps: [
     {
-      name: 'integrarh-api',
+      name: 'integra-api',
       cwd: __dirname + '/apps/api',
       script: 'dist/server.js',
       node_args: '--env-file=../../.env',

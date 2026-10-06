@@ -21,3 +21,14 @@ CREATE INDEX idx_vr_fechamento_entidade_vr_mes_id
 
 COMMENT ON TABLE vr_fechamento_entidade IS 'Status de fechamento do VR por entidade, dentro de um vr_mes — cada entidade fecha e gera arquivos de forma independente';
 COMMENT ON COLUMN vr_fechamento_entidade.fechado IS 'Indica se essa entidade já fechou o VR deste mês (bloqueia novos lançamentos retroativos e libera a exportação)';
+
+-- Row Level Security — mesmo conjunto de papéis das outras tabelas de VR
+-- (ver o comentário completo em 010_vale_refeicao.sql). Só por papel, sem
+-- dono — ninguém acessa fechamento de entidade como autoatendimento.
+ALTER TABLE vr_fechamento_entidade ENABLE ROW LEVEL SECURITY;
+ALTER TABLE vr_fechamento_entidade FORCE ROW LEVEL SECURITY;
+
+CREATE POLICY vr_fechamento_entidade_acesso ON vr_fechamento_entidade
+  FOR ALL
+  USING (current_setting('app.papel', true) = ANY (ARRAY['ADMIN', 'DP', 'COORDENADOR DP', 'ASSISTENTE', 'TESOUREIRO']))
+  WITH CHECK (current_setting('app.papel', true) = ANY (ARRAY['ADMIN', 'DP', 'COORDENADOR DP', 'ASSISTENTE', 'TESOUREIRO']));

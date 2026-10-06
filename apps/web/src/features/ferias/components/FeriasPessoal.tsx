@@ -12,6 +12,7 @@ const resumoVazio: FeriasResumo = {
   periodoAquisitivo: '—',
   podeFracionarFerias: false,
   podeVenderFerias: false,
+  exigeTrintaDias: false,
 }
 
 /**
@@ -68,6 +69,7 @@ export function FeriasPessoal() {
           temFeriasAprovadaNoCiclo={temFeriasAprovadaNoCiclo}
           podeFracionarFerias={resumo?.podeFracionarFerias}
           podeVenderFerias={resumo?.podeVenderFerias}
+          exigeTrintaDias={resumo?.exigeTrintaDias}
         />
         <HistoricoSolicitacoes
           solicitacoes={historico}

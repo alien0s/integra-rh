@@ -4,7 +4,6 @@ import { AppLayout } from '@/features/app/components'
 import {
   AparenciaForm,
   ConfiguracoesNav,
-  FeriasPreferenciasForm,
 } from '@/features/configuracoes/components'
 import type { ConfiguracoesSection } from '@/features/configuracoes/types'
 
@@ -40,7 +39,6 @@ export function ConfiguracoesPage() {
 
         <div className="flex-1">
           {secao === 'aparencia' && <AparenciaForm />}
-          {secao === 'ferias' && <FeriasPreferenciasForm />}
           {secao === 'conta' && (
             <EmBreve
               titulo="Conta"

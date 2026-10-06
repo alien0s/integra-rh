@@ -1,5 +1,5 @@
 import { Link, useLocation } from "react-router-dom"
-import { type LucideIcon } from "lucide-react"
+import { Lock, type LucideIcon } from "lucide-react"
 
 import {
   SidebarGroup,
@@ -19,6 +19,12 @@ export interface NavMainItem {
   url: string
   icon?: LucideIcon
   isActive?: boolean
+  /**
+   * Lançamento pra algumas pessoas (por enquanto) — item aparece com cadeado
+   * e não navega. Calculado em AppSidebar.tsx (LANCAMENTO_BETA_ATIVO); não
+   * mexe nas regras de visibilidade normais (somenteAdmin/somenteVr/etc.).
+   */
+  locked?: boolean
 }
 
 export interface NavMainProps {
@@ -43,16 +49,22 @@ export function NavMain({ items }: NavMainProps) {
             (item.url !== "#" &&
               (pathname === item.url || pathname.startsWith(`${item.url}/`)))
 
+          const conteudo = (
+            <>
+              {item.icon ? <item.icon /> : null}
+              <span>{item.title}</span>
+              {item.locked ? <Lock className="ml-auto size-3.5 shrink-0 opacity-70" /> : null}
+            </>
+          )
+
           const botao = (
             <SidebarMenuButton
-              asChild
+              asChild={!item.locked}
               isActive={isActive}
+              disabled={item.locked}
               className="data-[active=true]:transition-none text-sidebar-foreground hover:text-sidebar-accent-foreground data-[active=true]:bg-blue-600 data-[active=true]:hover:bg-blue-600 data-[active=true]:text-white data-[active=true]:hover:text-white data-[active=true]:[&_svg]:text-white [&_svg]:text-sidebar-foreground"
             >
-              <Link to={item.url}>
-                {item.icon ? <item.icon /> : null}
-                <span>{item.title}</span>
-              </Link>
+              {item.locked ? conteudo : <Link to={item.url}>{conteudo}</Link>}
             </SidebarMenuButton>
           )
 

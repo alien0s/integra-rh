@@ -68,14 +68,3 @@ export const NIVEL_CEFR_PROGRESSO: Record<NivelCEFR, number> = {
   C1: 83,
   C2: 100,
 }
-
-/**
- * Abre um anexo (diploma/certificado) já baixado como blob numa nova aba.
- * Revoga a object URL depois de um tempo — só precisa viver o suficiente
- * pro navegador abrir a aba.
- */
-export function abrirAnexoBlob(blob: Blob) {
-  const url = URL.createObjectURL(blob)
-  window.open(url, '_blank', 'noopener,noreferrer')
-  setTimeout(() => URL.revokeObjectURL(url), 60_000)
-}

@@ -4,6 +4,7 @@ import { getToken } from '@/lib/auth'
 import type { Notificacao } from '@/features/notificacoes/types'
 import { notificacoesService } from '@/features/notificacoes/services'
 import { feriasService } from '@/features/ferias/services'
+import { cursosService } from '@/features/cursos/services'
 
 /**
  * Fallback (SSE é a via principal): polling mais espaçado, só como rede de
@@ -96,9 +97,11 @@ export function useNotificacoes() {
   }
 
   /**
-   * Age no recurso de origem da notificação (hoje: férias) e recarrega. A ação
-   * "aprovar" respeita a ETAPA: card do gestor (…_SOLICITADA) aprova a 1ª etapa;
-   * card do DP (…_AGUARDA_DP) confirma a 2ª. A recusa exige um motivo.
+   * Age no recurso de origem da notificação (férias ou Cursos e
+   * Qualificações) e recarrega. Em férias, "aprovar" respeita a ETAPA: card
+   * do gestor (…_SOLICITADA) aprova a 1ª etapa; card do DP (…_AGUARDA_DP)
+   * confirma a 2ª. Em Cursos e Qualificações é uma etapa só (RH). A recusa
+   * sempre exige um motivo.
    */
   async function agirNaReferencia(
     id: string,
@@ -108,6 +111,7 @@ export function useNotificacoes() {
     const alvo = notificacoes.find((n) => n.id === id)
     if (!alvo?.referenciaId) return
 
+    const motivoRecusa = motivo?.trim() || 'Recusado'
     if (alvo.referenciaTabela === 'ferias_solicitacoes') {
       if (decisao === 'aprovar') {
         if (alvo.tipo?.endsWith('_AGUARDA_DP')) {
@@ -116,8 +120,17 @@ export function useNotificacoes() {
           await feriasService.aprovar(alvo.referenciaId)
         }
       } else {
-        await feriasService.recusar(alvo.referenciaId, motivo?.trim() || 'Recusado')
+        await feriasService.recusar(alvo.referenciaId, motivoRecusa)
       }
+    } else if (alvo.referenciaTabela === 'qualificacoes_academicas') {
+      if (decisao === 'aprovar') await cursosService.aprovarFormacao(alvo.referenciaId)
+      else await cursosService.recusarFormacao(alvo.referenciaId, motivoRecusa)
+    } else if (alvo.referenciaTabela === 'qualificacoes_cursos') {
+      if (decisao === 'aprovar') await cursosService.aprovarCurso(alvo.referenciaId)
+      else await cursosService.recusarCurso(alvo.referenciaId, motivoRecusa)
+    } else if (alvo.referenciaTabela === 'qualificacoes_idiomas') {
+      if (decisao === 'aprovar') await cursosService.aprovarIdioma(alvo.referenciaId)
+      else await cursosService.recusarIdioma(alvo.referenciaId, motivoRecusa)
     }
     await marcarComoLida(id)
     await carregar()

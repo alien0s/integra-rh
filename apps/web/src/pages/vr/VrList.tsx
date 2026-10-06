@@ -9,8 +9,8 @@ import { useVr } from '@/features/vr/hooks'
  * entidade — ACeAm, RADOAM, NT Store... — fecha de forma independente).
  */
 export function VrList() {
-  const { meses, colaboradores, entidades, criar, recarregar } = useVr()
-  const mesAberto = meses.find((m) => !m.fechado)
+  const { meses, colaboradores, entidades, escopo, mesesAbertos, criar, recarregar } = useVr()
+  const mostrarGrupo = Boolean(escopo?.admin)
 
   return (
     <AppLayout
@@ -18,8 +18,12 @@ export function VrList() {
       description="Home / Gestão de Pessoas / Vale-Refeição"
       actions={
         <div className="flex items-center gap-2">
-          <TodosLancamentosDialog />
-          <NovoVrMesDialog onCriar={criar} mesAbertoExistente={mesAberto} />
+          <TodosLancamentosDialog mostrarGrupo={mostrarGrupo} />
+          <NovoVrMesDialog
+            onCriar={criar}
+            grupos={escopo?.grupos ?? []}
+            mesesAbertos={mesesAbertos}
+          />
         </div>
       }
     >
@@ -28,6 +32,7 @@ export function VrList() {
         colaboradores={colaboradores}
         entidades={entidades}
         onAtualizado={recarregar}
+        mostrarGrupo={mostrarGrupo}
       />
     </AppLayout>
   )

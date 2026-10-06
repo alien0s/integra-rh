@@ -37,9 +37,30 @@ async function main() {
 
   await limparDadosDeTeste(sql);
 
+  const [usuarioTeste] = await sql<{ id: string; nome: string; entityId: string; entityNome: string; grupo: string }[]>`
+    SELECT u.id, u.nome, u.entity_id AS "entityId", e.nome AS "entityNome", e.grupo
+    FROM users u
+    JOIN entities e ON e.id = u.entity_id
+    WHERE u.is_active = TRUE AND u.participa_vr = TRUE
+      AND e.participa_vr = TRUE AND e.grupo IS NOT NULL
+    ORDER BY u.nome
+    LIMIT 1
+  `;
+  if (!usuarioTeste) {
+    console.error(
+      "✗ Nenhum usuário ativo com entidade vinculada encontrado — não dá pra testar sem isso.",
+    );
+    process.exitCode = 1;
+    return;
+  }
+  console.log(
+    `✓ Usando usuário real (só leitura): ${usuarioTeste.nome} — entidade: ${usuarioTeste.entityNome} (grupo ${usuarioTeste.grupo})`,
+  );
+
+  // O mês de teste é do MESMO grupo do usuário de teste (cada grupo tem o seu mês).
   const [vrMes] = await sql<{ id: string }[]>`
-    INSERT INTO vr_mes (mes, ano, valor_diario, valor_diario_aprendiz)
-    VALUES (${MES_TESTE}, ${ANO_TESTE}, ${VALOR_DIARIO_TESTE}, ${VALOR_DIARIO_APRENDIZ_TESTE})
+    INSERT INTO vr_mes (grupo, mes, ano, valor_diario, valor_diario_aprendiz)
+    VALUES (${usuarioTeste.grupo}, ${MES_TESTE}, ${ANO_TESTE}, ${VALOR_DIARIO_TESTE}, ${VALOR_DIARIO_APRENDIZ_TESTE})
     RETURNING id
   `;
   console.log(`✓ vr_mes de teste criado: ${vrMes.id}`);
@@ -51,24 +72,6 @@ async function main() {
     `;
   }
   console.log(`✓ ${DIAS_ELEGIVEIS_TESTE} dias elegíveis cadastrados`);
-
-  const [usuarioTeste] = await sql<{ id: string; nome: string; entityId: string; entityNome: string }[]>`
-    SELECT u.id, u.nome, u.entity_id AS "entityId", e.nome AS "entityNome"
-    FROM users u
-    JOIN entities e ON e.id = u.entity_id
-    WHERE u.is_active = TRUE
-    LIMIT 1
-  `;
-  if (!usuarioTeste) {
-    console.error(
-      "✗ Nenhum usuário ativo com entidade vinculada encontrado — não dá pra testar sem isso.",
-    );
-    process.exitCode = 1;
-    return;
-  }
-  console.log(
-    `✓ Usando usuário real (só leitura): ${usuarioTeste.nome} — entidade: ${usuarioTeste.entityNome}`,
-  );
 
   // Lançamento de teste: 4 dias de desconto (dentro da capacidade, não deve virar excedente)
   for (let i = 0; i < 4; i++) {
@@ -124,7 +127,7 @@ async function main() {
  */
 async function limparDadosDeTeste(sql: ReturnType<typeof getDatabase>) {
   const [vrMesExistente] = await sql<{ id: string }[]>`
-    SELECT id FROM vr_mes WHERE mes = ${MES_TESTE} AND ano = ${ANO_TESTE} LIMIT 1
+    SELECT id FROM vr_mes WHERE mes = ${MES_TESTE} AND ano = ${ANO_TESTE} LIMIT 1 /* só o do teste */
   `;
   if (!vrMesExistente) return;
 
@@ -139,3 +142,4 @@ main()
     process.exitCode = 1;
   })
   .finally(() => process.exit());
+  

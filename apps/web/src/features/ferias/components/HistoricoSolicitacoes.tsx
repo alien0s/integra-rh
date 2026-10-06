@@ -268,9 +268,7 @@ export function HistoricoSolicitacoes({
           </p>
           <p className="mt-0.5 text-sm text-blue-700/80 dark:text-blue-300/80">
             As solicitações devem ser feitas com no mínimo 40 dias de
-            antecedência, e as férias não podem começar em sexta, sábado ou
-            domingo. Em caso de dúvidas, consulte o Guia do Colaborador no menu
-            de ajuda.
+            antecedência.
           </p>
         </div>
       </div>

@@ -48,7 +48,7 @@ export interface SetPasswordBody {
   password: string;
 }
 
+/** CPF não está aqui de propósito — só o sistema legado escreve CPF. */
 export interface UpdateMeuPerfilBody {
-  cpf: string | null;
   telefone: string | null;
 }

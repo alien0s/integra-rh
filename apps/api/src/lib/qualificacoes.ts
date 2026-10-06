@@ -132,6 +132,19 @@ export async function listFormacoesPendentes(): Promise<FormacaoAcademica[]> {
   `;
 }
 
+/**
+ * Uma formação por id, com `status`/`motivoRecusa` (visão de moderação do
+ * RH) — qualquer status, não só PENDENTE (ex.: reabrir pelo histórico de
+ * notificações um item já decidido). `null` se não existir.
+ */
+export async function getFormacaoPorId(id: string): Promise<FormacaoAcademica | null> {
+  const sql = getDatabase();
+  const linhas = await sql<FormacaoAcademica[]>`
+    ${SELECT_FORMACAO(sql)} WHERE id = ${id}
+  `;
+  return linhas[0] ?? null;
+}
+
 export async function criarFormacao(
   userId: string,
   input: FormacaoAcademicaInput,
@@ -328,6 +341,15 @@ export async function listCursosPendentes(): Promise<CursoQualificacao[]> {
   `;
 }
 
+/** Um curso/workshop/certificação por id, qualquer status. `null` se não existir. */
+export async function getCursoPorId(id: string): Promise<CursoQualificacao | null> {
+  const sql = getDatabase();
+  const linhas = await sql<CursoQualificacao[]>`
+    ${SELECT_CURSO(sql)} WHERE id = ${id}
+  `;
+  return linhas[0] ?? null;
+}
+
 export async function criarCurso(
   userId: string,
   input: CursoQualificacaoInput,
@@ -504,6 +526,15 @@ export async function listIdiomasPendentes(): Promise<Idioma[]> {
   return sql<Idioma[]>`
     ${SELECT_IDIOMA(sql)} WHERE status = 'PENDENTE' ORDER BY id
   `;
+}
+
+/** Um idioma por id, qualquer status. `null` se não existir. */
+export async function getIdiomaPorId(id: string): Promise<Idioma | null> {
+  const sql = getDatabase();
+  const linhas = await sql<Idioma[]>`
+    ${SELECT_IDIOMA(sql)} WHERE id = ${id}
+  `;
+  return linhas[0] ?? null;
 }
 
 /**

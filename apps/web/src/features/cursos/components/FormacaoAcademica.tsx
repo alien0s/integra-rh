@@ -5,7 +5,8 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Separator } from '@/components/ui/separator'
 import { useToast } from '@/hooks/use-toast'
-import { abrirAnexoBlob, CURSOS_STYLES, formatarTituloFormacao } from '@/lib/cursos'
+import { CURSOS_STYLES, formatarTituloFormacao } from '@/lib/cursos'
+import { abrirArquivo } from '@/features/visualizador-arquivo'
 import { cursosService } from '../services'
 import type { FormacaoAcademica as FormacaoAcademicaType, NovaFormacaoInput } from '../types'
 import { NewGraduacaoModal } from './NewGraduacaoModal'
@@ -38,7 +39,7 @@ export function FormacaoAcademica({
   async function verDiploma(item: FormacaoAcademicaType) {
     try {
       const blob = await cursosService.baixarAnexoFormacao(item.id)
-      abrirAnexoBlob(blob)
+      abrirArquivo({ blob, titulo: formatarTituloFormacao(item.nivel, item.curso) })
     } catch (error) {
       toast({
         title: 'Não foi possível abrir o diploma',

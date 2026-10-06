@@ -14,6 +14,7 @@ import {
 import {
   useOpcoesUsuario,
   usePersonificar,
+  usePodeEditarUsuario,
   useUsuario,
 } from '@/features/usuarios/hooks'
 import type { AtualizarUsuarioInput } from '@/features/usuarios/types'
@@ -55,6 +56,11 @@ export function UsuarioPerfilConteudo({
   const { setores, funcoes, papeis } = useOpcoesUsuario(!apenasContato)
   const { entidades } = useEntidades(!apenasContato)
   const { podePersonificar, personificar } = usePersonificar(usuario)
+  // `apenasContato` (colaborador editando o próprio perfil) é uma liberação à
+  // parte, sempre válida — fora isso, edição completa nunca vale sobre si
+  // mesmo (ver podeEditarUsuario).
+  const podeEditarCompleto = usePodeEditarUsuario(usuario)
+  const podeEditar = apenasContato || podeEditarCompleto
   const [editando, setEditando] = useState(false)
   const [salvando, setSalvando] = useState(false)
 
@@ -62,7 +68,7 @@ export function UsuarioPerfilConteudo({
     setSalvando(true)
     try {
       if (apenasContato) {
-        await authService.updateMeuPerfil({ cpf: input.cpf, telefone: input.telefone })
+        await authService.updateMeuPerfil({ telefone: input.telefone })
         await recarregar()
       } else {
         await atualizarUsuario(input)
@@ -98,6 +104,7 @@ export function UsuarioPerfilConteudo({
               usuario={usuario}
               onUploadAvatar={atualizarAvatar}
               onEditar={() => setEditando(true)}
+              podeEditar={podeEditar}
               podePersonificar={podePersonificar}
               onPersonificar={personificar}
             />

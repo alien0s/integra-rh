@@ -1,5 +1,6 @@
 import type { FastifyInstance } from "fastify";
 
+import { rodaComoUsuario } from "../lib/database.js";
 import { signAuthToken } from "../lib/jwt.js";
 import { authenticateWithLdap, LdapUnavailableError } from "../lib/ldap.js";
 import { hashPassword, verifyPassword } from "../lib/password.js";
@@ -67,6 +68,17 @@ function podePersonificar(papelCodigo: string | undefined): boolean {
   );
 }
 
+/**
+ * Identidade "de sistema" pros fluxos de login/1º acesso (`/auth/login`,
+ * `/auth/local/*`) — eles criam/atualizam a PRÓPRIA linha de quem está
+ * logando, mas isso acontece ANTES de existir um JWT (é o processo que
+ * decide quem a pessoa é), então não tem como usar o id dela em
+ * `rodaComoUsuario`. `papel: ADMIN` satisfaz as policies de RLS de `users`
+ * (ver 006_users.sql) — mesma convenção do cron job de comunicação e do
+ * script test-vr.ts.
+ */
+const USUARIO_SISTEMA_LOGIN = { id: "sistema:login", papelCodigo: "ADMIN" };
+
 export async function authRoutes(app: FastifyInstance) {
   /**
    * Login por e-mail + senha validado no LDAP (Microsoft AD). Na primeira vez,
@@ -119,18 +131,20 @@ export async function authRoutes(app: FastifyInstance) {
         throw error;
       }
 
-      let user = await findOrCreateUsuarioLocal(email);
+      return rodaComoUsuario(USUARIO_SISTEMA_LOGIN, async () => {
+        let user = await findOrCreateUsuarioLocal(email);
 
-      // Só preenche a foto com a do AD se o usuário ainda não tiver nenhuma
-      // (avatar_url vazio) — não sobrescreve uma foto já existente (ex.:
-      // enviada manualmente). Só acontece no login.
-      if (resultadoLdap.avatarDataUri && !user.avatarUrl) {
-        const atualizado = await updateUserAvatar(user.id, resultadoLdap.avatarDataUri);
-        if (atualizado) user = atualizado;
-      }
+        // Só preenche a foto com a do AD se o usuário ainda não tiver nenhuma
+        // (avatar_url vazio) — não sobrescreve uma foto já existente (ex.:
+        // enviada manualmente). Só acontece no login.
+        if (resultadoLdap.avatarDataUri && !user.avatarUrl) {
+          const atualizado = await updateUserAvatar(user.id, resultadoLdap.avatarDataUri);
+          if (atualizado) user = atualizado;
+        }
 
-      const authUser = paraAuthUser(user);
-      return { token: signAuthToken(authUser), user: authUser };
+        const authUser = paraAuthUser(user);
+        return { token: signAuthToken(authUser), user: authUser };
+      });
     },
   );
 
@@ -164,8 +178,10 @@ export async function authRoutes(app: FastifyInstance) {
           .code(400)
           .send({ message: `Use seu e-mail corporativo (${DOMINIO_CORP}).` });
       }
-      const usuario = await getUsuarioAuthPorEmail(email);
-      return { mode: usuario?.passwordHash ? "login" : "criar-senha" };
+      return rodaComoUsuario(USUARIO_SISTEMA_LOGIN, async () => {
+        const usuario = await getUsuarioAuthPorEmail(email);
+        return { mode: usuario?.passwordHash ? "login" : "criar-senha" };
+      });
     },
   );
 
@@ -194,22 +210,24 @@ export async function authRoutes(app: FastifyInstance) {
       const email = request.body.email.trim().toLowerCase();
       const { password } = request.body;
 
-      const usuario = await getUsuarioAuthPorEmail(email);
-      if (!usuario || !usuario.passwordHash) {
-        return reply.code(401).send({ message: "Credenciais inválidas" });
-      }
+      return rodaComoUsuario(USUARIO_SISTEMA_LOGIN, async () => {
+        const usuario = await getUsuarioAuthPorEmail(email);
+        if (!usuario || !usuario.passwordHash) {
+          return reply.code(401).send({ message: "Credenciais inválidas" });
+        }
 
-      const ok = await verifyPassword(password, usuario.passwordHash);
-      if (!ok) {
-        return reply.code(401).send({ message: "Credenciais inválidas" });
-      }
+        const ok = await verifyPassword(password, usuario.passwordHash);
+        if (!ok) {
+          return reply.code(401).send({ message: "Credenciais inválidas" });
+        }
 
-      // Atualiza o last_login_at (regrava o mesmo hash).
-      await definirSenhaUsuario(usuario.id, usuario.passwordHash);
-      await preencherDadosLegadoSeVazio(usuario.id, email);
+        // Atualiza o last_login_at (regrava o mesmo hash).
+        await definirSenhaUsuario(usuario.id, usuario.passwordHash);
+        await preencherDadosLegadoSeVazio(usuario.id, email);
 
-      const authUser = paraAuthUser(usuario);
-      return { token: signAuthToken(authUser), user: authUser };
+        const authUser = paraAuthUser(usuario);
+        return { token: signAuthToken(authUser), user: authUser };
+      });
     },
   );
 
@@ -244,26 +262,29 @@ export async function authRoutes(app: FastifyInstance) {
           .send({ message: `Use seu e-mail corporativo (${DOMINIO_CORP}).` });
       }
 
-      const existente = await getUsuarioAuthPorEmail(email);
-      if (existente?.passwordHash) {
-        return reply
-          .code(409)
-          .send({ message: "Este e-mail já possui senha. Faça login." });
-      }
-
       const passwordHash = await hashPassword(password);
-      const user: AppUser | null = existente
-        ? await definirSenhaUsuario(existente.id, passwordHash)
-        : await criarUsuarioComSenha({ email, passwordHash });
 
-      if (!user) {
-        return reply
-          .code(500)
-          .send({ message: "Não foi possível definir a senha." });
-      }
+      return rodaComoUsuario(USUARIO_SISTEMA_LOGIN, async () => {
+        const existente = await getUsuarioAuthPorEmail(email);
+        if (existente?.passwordHash) {
+          return reply
+            .code(409)
+            .send({ message: "Este e-mail já possui senha. Faça login." });
+        }
 
-      const authUser = paraAuthUser(user);
-      return { token: signAuthToken(authUser), user: authUser };
+        const user: AppUser | null = existente
+          ? await definirSenhaUsuario(existente.id, passwordHash)
+          : await criarUsuarioComSenha({ email, passwordHash });
+
+        if (!user) {
+          return reply
+            .code(500)
+            .send({ message: "Não foi possível definir a senha." });
+        }
+
+        const authUser = paraAuthUser(user);
+        return { token: signAuthToken(authUser), user: authUser };
+      });
     },
   );
 
@@ -279,6 +300,8 @@ export async function authRoutes(app: FastifyInstance) {
       },
     },
     async (request) => {
+      // GET /auth/me não toca o banco (só devolve o que já está no JWT) —
+      // sem rodaComoUsuario de propósito, nada a proteger aqui.
       return {
         data: request.user,
       };
@@ -286,8 +309,9 @@ export async function authRoutes(app: FastifyInstance) {
   );
 
   /**
-   * Atualização do próprio perfil (self-service): apenas cpf e telefone.
-   * Não altera setor/função/papéis (isso é da tela de Usuários / RH).
+   * Atualização do próprio perfil (self-service): apenas telefone. Não
+   * altera setor/função/papéis (isso é da tela de Usuários / RH). CPF não é
+   * editável — só vem do sistema legado (ver preencherDadosLegadoSeVazio).
    */
   app.patch<{
     Body: UpdateMeuPerfilBody;
@@ -298,11 +322,10 @@ export async function authRoutes(app: FastifyInstance) {
       onRequest: [app.authenticate],
       schema: {
         tags: ["Autenticação"],
-        summary: "Atualiza o próprio perfil (cpf/telefone)",
+        summary: "Atualiza o próprio perfil (telefone)",
         body: {
           type: "object",
           properties: {
-            cpf: { type: ["string", "null"] },
             telefone: { type: ["string", "null"] },
           },
           additionalProperties: false,
@@ -310,7 +333,7 @@ export async function authRoutes(app: FastifyInstance) {
       },
     },
     async (request, reply) => {
-      try {
+      return rodaComoUsuario(request.user, async () => {
         const atualizado = await atualizarPerfilProprio(
           request.user.id,
           request.body,
@@ -321,14 +344,7 @@ export async function authRoutes(app: FastifyInstance) {
         }
 
         return { data: atualizado };
-      } catch (error) {
-        if ((error as { code?: string }).code === "23505") {
-          return reply
-            .code(409)
-            .send({ message: "CPF já cadastrado para outro usuário." });
-        }
-        throw error;
-      }
+      });
     },
   );
 
@@ -377,17 +393,19 @@ export async function authRoutes(app: FastifyInstance) {
           .send({ message: "Você não pode personificar a si mesmo." });
       }
 
-      const alvo = await getUsuarioPorId(usuarioId);
-      if (!alvo) {
-        return reply.code(404).send({ message: "Usuário não encontrado" });
-      }
+      return rodaComoUsuario(ator, async () => {
+        const alvo = await getUsuarioPorId(usuarioId);
+        if (!alvo) {
+          return reply.code(404).send({ message: "Usuário não encontrado" });
+        }
 
-      const authUser: AuthUser = {
-        ...paraAuthUserDeDetalhado(alvo),
-        personificadoPor: { id: ator.id, email: ator.email, nome: ator.nome },
-      };
+        const authUser: AuthUser = {
+          ...paraAuthUserDeDetalhado(alvo),
+          personificadoPor: { id: ator.id, email: ator.email, nome: ator.nome },
+        };
 
-      return { token: signAuthToken(authUser), user: authUser };
+        return { token: signAuthToken(authUser), user: authUser };
+      });
     },
   );
 
@@ -410,15 +428,17 @@ export async function authRoutes(app: FastifyInstance) {
         return reply.code(400).send({ message: "Não há personificação ativa." });
       }
 
-      const original = await getUsuarioPorId(sessao.personificadoPor.id);
-      if (!original) {
-        return reply
-          .code(404)
-          .send({ message: "Usuário original não encontrado" });
-      }
+      return rodaComoUsuario(sessao, async () => {
+        const original = await getUsuarioPorId(sessao.personificadoPor!.id);
+        if (!original) {
+          return reply
+            .code(404)
+            .send({ message: "Usuário original não encontrado" });
+        }
 
-      const authUser = paraAuthUserDeDetalhado(original);
-      return { token: signAuthToken(authUser), user: authUser };
+        const authUser = paraAuthUserDeDetalhado(original);
+        return { token: signAuthToken(authUser), user: authUser };
+      });
     },
   );
 }

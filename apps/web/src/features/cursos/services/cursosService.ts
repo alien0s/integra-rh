@@ -197,4 +197,99 @@ export const cursosService = {
     if (!response.ok) return lancarErro(response, 'Falha ao baixar o certificado')
     return response.blob()
   },
+
+  /* ── Moderação (RH/Admin) — usado pelas notificações acionáveis ────────── */
+
+  /** Detalhe de uma formação por id (qualquer status) — DetalheQualificacaoDialog. */
+  async getFormacao(id: string): Promise<FormacaoAcademica> {
+    const response = await fetch(`${API_URL}/qualificacoes/formacoes/${id}`, {
+      headers: authHeaders(),
+    })
+    if (!response.ok) return lancarErro(response, 'Falha ao buscar a formação')
+    const json = (await response.json()) as ApiResponse<FormacaoAcademica>
+    return json.data
+  },
+
+  /** Detalhe de um curso/workshop/certificação por id (qualquer status). */
+  async getCurso(id: string): Promise<CursoQualificacao> {
+    const response = await fetch(`${API_URL}/qualificacoes/cursos/${id}`, {
+      headers: authHeaders(),
+    })
+    if (!response.ok) return lancarErro(response, 'Falha ao buscar o registro')
+    const json = (await response.json()) as ApiResponse<CursoQualificacao>
+    return json.data
+  },
+
+  /** Detalhe de um idioma por id (qualquer status). */
+  async getIdioma(id: string): Promise<Idioma> {
+    const response = await fetch(`${API_URL}/qualificacoes/idiomas/${id}`, {
+      headers: authHeaders(),
+    })
+    if (!response.ok) return lancarErro(response, 'Falha ao buscar o idioma')
+    const json = (await response.json()) as ApiResponse<Idioma>
+    return json.data
+  },
+
+  async aprovarFormacao(id: string): Promise<FormacaoAcademica> {
+    const response = await fetch(`${API_URL}/qualificacoes/formacoes/${id}/aprovar`, {
+      method: 'PATCH',
+      headers: authHeaders(),
+    })
+    if (!response.ok) return lancarErro(response, 'Falha ao aprovar a formação')
+    const json = (await response.json()) as ApiResponse<FormacaoAcademica>
+    return json.data
+  },
+
+  async recusarFormacao(id: string, motivo: string): Promise<FormacaoAcademica> {
+    const response = await fetch(`${API_URL}/qualificacoes/formacoes/${id}/recusar`, {
+      method: 'PATCH',
+      headers: jsonHeaders(),
+      body: JSON.stringify({ motivo }),
+    })
+    if (!response.ok) return lancarErro(response, 'Falha ao recusar a formação')
+    const json = (await response.json()) as ApiResponse<FormacaoAcademica>
+    return json.data
+  },
+
+  async aprovarCurso(id: string): Promise<CursoQualificacao> {
+    const response = await fetch(`${API_URL}/qualificacoes/cursos/${id}/aprovar`, {
+      method: 'PATCH',
+      headers: authHeaders(),
+    })
+    if (!response.ok) return lancarErro(response, 'Falha ao aprovar o registro')
+    const json = (await response.json()) as ApiResponse<CursoQualificacao>
+    return json.data
+  },
+
+  async recusarCurso(id: string, motivo: string): Promise<CursoQualificacao> {
+    const response = await fetch(`${API_URL}/qualificacoes/cursos/${id}/recusar`, {
+      method: 'PATCH',
+      headers: jsonHeaders(),
+      body: JSON.stringify({ motivo }),
+    })
+    if (!response.ok) return lancarErro(response, 'Falha ao recusar o registro')
+    const json = (await response.json()) as ApiResponse<CursoQualificacao>
+    return json.data
+  },
+
+  async aprovarIdioma(id: string): Promise<Idioma> {
+    const response = await fetch(`${API_URL}/qualificacoes/idiomas/${id}/aprovar`, {
+      method: 'PATCH',
+      headers: authHeaders(),
+    })
+    if (!response.ok) return lancarErro(response, 'Falha ao aprovar o idioma')
+    const json = (await response.json()) as ApiResponse<Idioma>
+    return json.data
+  },
+
+  async recusarIdioma(id: string, motivo: string): Promise<Idioma> {
+    const response = await fetch(`${API_URL}/qualificacoes/idiomas/${id}/recusar`, {
+      method: 'PATCH',
+      headers: jsonHeaders(),
+      body: JSON.stringify({ motivo }),
+    })
+    if (!response.ok) return lancarErro(response, 'Falha ao recusar o idioma')
+    const json = (await response.json()) as ApiResponse<Idioma>
+    return json.data
+  },
 }

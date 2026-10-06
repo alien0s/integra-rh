@@ -1,5 +1,5 @@
 /** Ícone exibido no cartão de ação embutido. */
-export type NotificacaoCartaoIcone = 'arquivo' | 'documento' | 'curso' | 'obrigacao'
+export type NotificacaoCartaoIcone = 'arquivo' | 'documento' | 'curso' | 'obrigacao' | 'folga'
 
 /**
  * Notificação padrão do sistema lembrando de solicitar férias (obrigação
@@ -61,4 +61,6 @@ export interface Notificacao {
   /** Recurso de origem — para o card acionar (ex.: aprovar a férias). */
   referenciaTabela?: string | null
   referenciaId?: string | null
+  /** Tem um arquivo (diploma/certificado) pra ver antes de decidir. */
+  temArquivo?: boolean
 }

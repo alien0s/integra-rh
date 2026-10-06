@@ -419,12 +419,22 @@ export function LancamentosVrDialog({ vrMes, colaboradores, entidades }: Lancame
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [aberto, entityIdFiltro])
 
+  // Cada mês é de um grupo (campo): só aparecem colaboradores/entidades dele.
+  const colaboradoresDoGrupo = useMemo(
+    () => colaboradores.filter((c) => c.entityGrupo === vrMes.grupo),
+    [colaboradores, vrMes.grupo],
+  )
+  const entidadesDoGrupo = useMemo(
+    () => entidades.filter((e) => e.grupo === vrMes.grupo),
+    [entidades, vrMes.grupo],
+  )
+
   const colaboradoresFiltrados = useMemo(
     () =>
       entityIdFiltro
-        ? colaboradores.filter((c) => c.entityId === entityIdFiltro)
-        : colaboradores,
-    [colaboradores, entityIdFiltro],
+        ? colaboradoresDoGrupo.filter((c) => c.entityId === entityIdFiltro)
+        : colaboradoresDoGrupo,
+    [colaboradoresDoGrupo, entityIdFiltro],
   )
 
   async function handleLancarLote(itens: ItemLancamentoVr[]) {
@@ -468,7 +478,7 @@ export function LancamentosVrDialog({ vrMes, colaboradores, entidades }: Lancame
               onChange={(e) => setEntityIdFiltro(e.target.value)}
             >
               <option value="">Todas as entidades</option>
-              {entidades.map((ent) => (
+              {entidadesDoGrupo.map((ent) => (
                 <option key={ent.id} value={ent.id}>
                   {ent.nome}
                 </option>
