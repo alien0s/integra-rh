@@ -1,6 +1,13 @@
 import postgres from "postgres";
 
-import { getDatabase } from "./database.js";
+import { getDatabase, setarIdentidadeNaTransacao } from "./database.js";
+
+/**
+ * Quem está fazendo a operação — usado pelas funções que abrem a PRÓPRIA
+ * transação (`sql.begin`) pra setar `app.user_id`/`app.papel` (RLS) na 1ª linha.
+ * As demais funções rodam dentro de `rodaComoUsuario` (nas rotas).
+ */
+export type UsuarioRls = { id: string; papelCodigo?: string };
 
 /** Alias curto: aceita tanto a conexão normal quanto uma transação (sql.begin). */
 type Sql = postgres.ISql;
@@ -333,7 +340,10 @@ export async function listarVrMeses(grupo?: string | null): Promise<VrMesResumo[
  * (marcados manualmente pelo DP). Roda numa transação — se falhar no meio,
  * nada fica salvo pela metade.
  */
-export async function criarVrMes(input: CriarVrMesInput): Promise<VrMesResumo> {
+export async function criarVrMes(
+  input: CriarVrMesInput,
+  usuario: UsuarioRls,
+): Promise<VrMesResumo> {
   if (input.diasElegiveis.length === 0) {
     throw new VrMesSemDiasElegiveisError();
   }
@@ -341,6 +351,7 @@ export async function criarVrMes(input: CriarVrMesInput): Promise<VrMesResumo> {
   const sql = getDatabase();
 
   return sql.begin(async (sql: postgres.TransactionSql) => {
+    await setarIdentidadeNaTransacao(sql, usuario); // RLS: 1ª linha da transação
     const [grupoValido] = await sql<{ ok: number }[]>`
       SELECT 1 AS ok FROM entities WHERE grupo = ${input.grupo} AND participa_vr = TRUE LIMIT 1
     `;
@@ -657,17 +668,18 @@ export async function listarTodosLancamentos(
  * massa). Rejeita o lote inteiro se algum colaborador for de uma entidade
  * que já fechou este mês. Roda numa transação (tudo ou nada).
  *
- * `criadoPorUserId` é quem está autenticado fazendo o lançamento — fica
+ * `usuario` é quem está autenticado fazendo o lançamento — fica
  * gravado em `vr_lancamento.criado_por` pra mostrar "lançado por" nas telas.
  */
 export async function criarLancamentosEmLote(
   vrMesId: string,
   itens: Array<Omit<CriarLancamentoInput, "vrMesId">>,
-  criadoPorUserId: string,
+  usuario: UsuarioRls,
 ): Promise<LancamentoVr[]> {
   const sql = getDatabase();
 
   return sql.begin(async (sql: postgres.TransactionSql) => {
+    await setarIdentidadeNaTransacao(sql, usuario); // RLS: 1ª linha da transação
     const userIds = [...new Set(itens.map((i) => i.userId))];
 
     // Só dá pra lançar pra quem é de uma entidade do MESMO grupo do mês.
@@ -718,7 +730,7 @@ export async function criarLancamentosEmLote(
       >`
         WITH inserido AS (
           INSERT INTO vr_lancamento (user_id, mes_descontar_valor_id, tipo_lancamento, data_desconto, motivo, criado_por)
-          VALUES (${item.userId}, ${vrMesId}, ${item.tipoLancamento}, ${item.dataDesconto}, ${item.motivo}, ${criadoPorUserId})
+          VALUES (${item.userId}, ${vrMesId}, ${item.tipoLancamento}, ${item.dataDesconto}, ${item.motivo}, ${usuario.id})
           RETURNING *
         )
         SELECT
@@ -842,10 +854,12 @@ export async function preVisualizarFechamento(
 export async function fecharVrPorEntidade(
   vrMesId: string,
   entityId: string,
+  usuario: UsuarioRls,
 ): Promise<FechamentoVrResultado> {
   const sql = getDatabase();
 
   return sql.begin(async (sql: postgres.TransactionSql) => {
+    await setarIdentidadeNaTransacao(sql, usuario); // RLS: 1ª linha da transação
     const vrMes = await buscarVrMesParaFechamento(sql, vrMesId);
     if (!vrMes) {
       throw new VrMesNaoEncontradoError(vrMesId);
@@ -1049,7 +1063,11 @@ export async function buscarVrMesDetalhado(vrMesId: string): Promise<VrMesDetalh
  * tiver fechado esse mês ainda (mudar os dias invalidaria o cálculo já
  * feito). Roda numa transação (tudo ou nada).
  */
-export async function editarVrMes(vrMesId: string, input: EditarVrMesInput): Promise<VrMesResumo> {
+export async function editarVrMes(
+  vrMesId: string,
+  input: EditarVrMesInput,
+  usuario: UsuarioRls,
+): Promise<VrMesResumo> {
   if (input.diasElegiveis.length === 0) {
     throw new VrMesSemDiasElegiveisError();
   }
@@ -1057,6 +1075,7 @@ export async function editarVrMes(vrMesId: string, input: EditarVrMesInput): Pro
   const sql = getDatabase();
 
   return sql.begin(async (sql: postgres.TransactionSql) => {
+    await setarIdentidadeNaTransacao(sql, usuario); // RLS: 1ª linha da transação
     const [vrMes] = await sql<{ id: string }[]>`
       SELECT id FROM vr_mes WHERE id = ${vrMesId} FOR UPDATE
     `;
