@@ -116,8 +116,8 @@ export function VrMesCard({
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start">
               <DropdownMenuItem onClick={() => handleBaixarTudo('pdf')}>PDF</DropdownMenuItem>
-              <DropdownMenuItem onClick={() => handleBaixarTudo('csv')}>
-                CSV (operadora)
+              <DropdownMenuItem onClick={() => handleBaixarTudo('txt')}>
+                TXT (operadora)
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => handleBaixarTudo('xlsx')}>Excel</DropdownMenuItem>
             </DropdownMenuContent>

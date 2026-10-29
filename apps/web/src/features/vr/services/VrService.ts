@@ -49,7 +49,7 @@ async function lancarErro(response: Response, fallback: string): Promise<never> 
 
 const EXTENSAO_POR_FORMATO: Record<FormatoExportacaoVr, string> = {
   pdf: 'pdf',
-  csv: 'csv',
+  txt: 'txt',
   xlsx: 'xlsx',
 }
 

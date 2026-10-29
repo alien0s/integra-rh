@@ -67,7 +67,7 @@ function podeGerenciarVr(user: { papelCodigo?: string | null }): boolean {
   return Boolean(user.papelCodigo && PAPEIS_LIBERADOS_VR.has(user.papelCodigo));
 }
 
-const FORMATOS_EXPORTACAO = ["pdf", "csv", "xlsx"] as const;
+const FORMATOS_EXPORTACAO = ["pdf", "txt", "xlsx"] as const;
 type FormatoExportacao = (typeof FORMATOS_EXPORTACAO)[number];
 
 /**
@@ -681,11 +681,11 @@ export async function vrRoutes(app: FastifyInstance) {
       const registros = await buscarRegistrosParaExportacao(vrMesId, entityId);
       const nomeBase = `vr-${String(detalhe.mes).padStart(2, "0")}-${detalhe.ano}`;
 
-      if (formato === "csv") {
+      if (formato === "txt") {
         const csv = gerarRelatorioVrCsv(registros);
         return reply
-          .header("Content-Type", "text/csv; charset=utf-8")
-          .header("Content-Disposition", `attachment; filename="${nomeBase}.csv"`)
+          .header("Content-Type", "text/plain; charset=utf-8")
+          .header("Content-Disposition", `attachment; filename="${nomeBase}.txt"`)
           .send(csv);
       }
 

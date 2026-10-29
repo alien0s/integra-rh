@@ -123,12 +123,12 @@ async function main() {
   const excel = gerarRelatorioVrExcel(registros);
 
   writeFileSync("/tmp/vr-teste-relatorio.pdf", pdf);
-  writeFileSync("/tmp/vr-teste-arquivo.csv", csv, "utf8");
+  writeFileSync("/tmp/vr-teste-arquivo.txt", csv, "utf8");
   writeFileSync("/tmp/vr-teste-planilha.xlsx", excel);
 
   console.log("✓ Arquivos salvos em:");
   console.log("  /tmp/vr-teste-relatorio.pdf");
-  console.log("  /tmp/vr-teste-arquivo.csv");
+  console.log("  /tmp/vr-teste-arquivo.txt");
   console.log("  /tmp/vr-teste-planilha.xlsx");
   console.log("\nConteúdo do CSV gerado:");
   console.log(csv || "(vazio — provavelmente o usuário de teste não tem codigo_aps preenchido)");

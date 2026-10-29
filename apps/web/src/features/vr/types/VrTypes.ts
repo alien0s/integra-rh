@@ -42,7 +42,7 @@ export interface FechamentoVrResultado {
   mesInteiroFechado: boolean
 }
 
-export type FormatoExportacaoVr = 'pdf' | 'csv' | 'xlsx'
+export type FormatoExportacaoVr = 'pdf' | 'txt' | 'xlsx'
 
 export type TipoLancamentoVr = 'DESCONTO' | 'EXTRA'
 

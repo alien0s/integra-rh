@@ -247,8 +247,8 @@ export function FecharPorEntidadeDialog({
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
                         <DropdownMenuItem onClick={() => handleBaixar('pdf')}>PDF</DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => handleBaixar('csv')}>
-                          CSV (operadora)
+                        <DropdownMenuItem onClick={() => handleBaixar('txt')}>
+                          TXT (operadora)
                         </DropdownMenuItem>
                         <DropdownMenuItem onClick={() => handleBaixar('xlsx')}>Excel</DropdownMenuItem>
                       </DropdownMenuContent>
