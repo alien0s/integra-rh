@@ -174,6 +174,73 @@ export function FuncionarioSelect() { }
 import { FuncionarioSelect } from '@/components/RH'  // ✅
 ```
 
+### 8. **Abas condicionadas por papel — nunca sobrar 1 aba só**
+
+Várias páginas (Cursos, Férias, e provavelmente outras no futuro) têm abas
+(`Tabs`/`TabsList`/`TabsTrigger` do shadcn) onde uma ou mais só aparecem pra
+certos papéis (ex.: "Visão geral" só pra ADMIN/RH/DP/COORDENADOR DP). Pra um
+papel que não tem acesso a nenhuma das abas restritas (ex.: COLABORADOR),
+sobra só 1 aba — e uma aba única não é navegação, é ruído visual (o usuário
+vê uma barra de abas com um botão sozinho, sem nada pra alternar).
+
+❌ **ERRADO** — `TabsList` sempre renderizada, mesmo com 1 `TabsTrigger` só:
+```tsx
+const ehDpRh = Boolean(usuario?.papelCodigo && PAPEIS_DP_RH.has(usuario.papelCodigo))
+...
+<TabsList>
+  {ehDpRh && <TabsTrigger value="visao-geral">Visão geral</TabsTrigger>}
+  <TabsTrigger value="pessoal">Pessoal</TabsTrigger>   {/* fica sozinha pro COLABORADOR */}
+</TabsList>
+```
+
+✅ **CORRETO** — calcule quantas abas sobram pro papel atual e esconda a
+`TabsList` inteira (não só os `TabsTrigger` um a um) quando sobrar 1 só. Duas
+formas já usadas no projeto, as duas válidas:
+
+**a) `TabsList` condicional, mantendo o `<Tabs>` raiz** (`CursosList.tsx`) —
+preferível quando o conteúdo das abas já está todo dentro de um único
+componente filho controlado pelo próprio `Tabs` (`TabsContent` precisa do
+contexto do `<Tabs>` pra funcionar, então ele continua no JSX; só a barra
+de navegação some):
+```tsx
+<Tabs defaultValue={ehDpRh ? 'visao-geral' : 'pessoal'}>
+  <AppLayout
+    actions={
+      ehDpRh ? (
+        <TabsList>
+          <TabsTrigger value="visao-geral">Visão geral</TabsTrigger>
+          <TabsTrigger value="pessoal">Pessoal</TabsTrigger>
+        </TabsList>
+      ) : undefined
+    }
+  >
+    <ConteudoComAmbosOsTabsContent />
+  </AppLayout>
+</Tabs>
+```
+
+**b) Early return sem `<Tabs>` nenhum** (`FeriasList.tsx`) — preferível
+quando o conteúdo de cada aba já é um componente próprio e independente
+(não precisa do `<Tabs>` pra nada além de trocar de view):
+```tsx
+if (ehColaborador) {
+  return (
+    <AppLayout title="Férias">
+      <FeriasPessoal />
+    </AppLayout>
+  )
+}
+return (
+  <Tabs value={tab} onValueChange={handleTabChange}>
+    <AppLayout tabs={<TabsList>...</TabsList>}>...</AppLayout>
+  </Tabs>
+)
+```
+
+Qualquer aba nova condicionada por papel (`{papelPermite && <TabsTrigger>}`)
+precisa checar se, pro papel mais restrito do sistema (hoje COLABORADOR),
+ainda sobra mais de 1 aba — se não sobrar, aplique a) ou b) acima.
+
 ---
 
 ## 🎯 Objetivo de Cada Arquivo/Pasta

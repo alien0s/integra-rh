@@ -1,6 +1,9 @@
 import postgres from 'postgres';
 
-import { getDatabase } from './database.js';
+import { comSavepoint, getDatabase } from './database.js';
+import { sincronizarFeriasLegado } from './ferias.js';
+import { emitirParaPapeis } from './notificacoes.js';
+import { sincronizarQualificacoesLegado } from './qualificacoes-legado.js';
 import {
   buscarFuncionarioLegado,
   type FuncionarioLegado,
@@ -31,10 +34,12 @@ const SELECT_APP_USER = (sql: ReturnType<typeof postgres>) => sql`
          u.nome,
          u.avatar_url AS "avatarUrl",
          s.nome       AS setor,
+         f.nome       AS funcao,
          r.codigo     AS "papelCodigo"
   FROM users u
   LEFT JOIN setor      s ON s.id = u.setor_id
   LEFT JOIN functions  f ON f.id = u.function_id
+  LEFT JOIN roles      r ON r.id = u.role_id
 `;
 
 /**
@@ -64,7 +69,9 @@ export async function findOrCreateUser(profile: MicrosoftProfile): Promise<AppUs
           avatar_url    = ${profile.avatarUrl ?? null}
       WHERE id = ${user.id}
     `;
-    await preencherDadosLegadoSeVazio(user.id, profile.email);
+    await comSavepoint(() => sincronizarDadosLegado(user.id, profile.email));
+    await comSavepoint(() => sincronizarFeriasLegado(user.id));
+    await comSavepoint(() => sincronizarQualificacoesLegado(user.id));
 
     return { ...user, nome: profile.nome, avatarUrl: profile.avatarUrl ?? null };
   }
@@ -84,6 +91,12 @@ export async function findOrCreateUser(profile: MicrosoftProfile): Promise<AppUs
     ${SELECT_APP_USER(sql)}
     WHERE u.id = ${created.id}
   `;
+
+  // CPF normalmente ainda não existe aqui (SSO não enriquece no 1º login) —
+  // a função já trata isso (no-op sem CPF), mas fica pronta pro dia que
+  // criar com enriquecimento também.
+  await comSavepoint(() => sincronizarFeriasLegado(user.id));
+  await comSavepoint(() => sincronizarQualificacoesLegado(user.id));
 
   return user;
 }
@@ -230,63 +243,147 @@ async function inserirUsuarioComLegado(
 }
 
 /**
- * Preenche no legado os campos que ainda estiverem vazios (nunca sobrescreve
- * o que já existe — mesmo padrão de `preencherVinculosVazios`). Usado no
- * login de um usuário que JÁ existe em `users` (pré-cadastrado só com
- * email + papel, ex.: gerente indicado manualmente porque a função do APS
- * nem sempre é confiável) e ainda não passou pelo legado.
+ * Sincroniza o cadastro com o funcionário no legado (APS) — chamado em TODO
+ * login (ver findOrCreateUser/findOrCreateUsuarioLocal abaixo e
+ * /auth/local/login em auth.routes.ts), não só no 1º acesso. Compara o que já
+ * está em `users` com o que o APS tem agora e corrige o que estiver
+ * desatualizado (ex.: funcionário corrigiu o nome, mudou de estado civil,
+ * cidade ou conta bancária no RH) — sem precisar de reimport manual.
  *
- * Gatilho: só busca no SQL Server se `codigo_aps` estiver vazio — é o único
- * campo que só é preenchido pelo legado (diferente de cpf/telefone, que o RH
- * também edita manualmente pela tela de Usuários), então serve de marcador
- * confiável de "nunca foi enriquecido". NUNCA mexe em role_id/setor_id/
- * function_id — papel e função são decisão manual do RH, não do legado.
+ * Regras:
+ * - Só sobrescreve um campo quando o APS tem um valor para ele (nunca apaga
+ *   um dado já preenchido por causa de uma resposta vazia/parcial do
+ *   legado) e só grava quando pelo menos um campo realmente mudou — evita
+ *   tocar `updated_at` à toa em todo login de quem já está em dia.
+ * - `telefone`, `entity_id` e `estado_civil_id` são EXCEÇÃO: continuam só
+ *   sendo preenchidos quando ainda estão vazios, nunca sobrescritos depois
+ *   disso — diferente dos demais, esses três também podem ser ajustados
+ *   manualmente dentro do próprio sistema (telefone em PATCH /auth/me pelo
+ *   colaborador OU em PATCH /usuarios/:usuarioId pelo ADMIN; estado civil em
+ *   PATCH /auth/me pelo colaborador, no modal de autoatendimento — nesses
+ *   casos o DP/Coordenador DP é notificado pra replicar a mudança no APS, ver
+ *   notificarDpParaAtualizarAps; entidade em PATCH /usuarios/:usuarioId pelo
+ *   ADMIN), então o APS não é a única fonte de verdade pra eles depois do
+ *   cadastro inicial.
+ * - NUNCA mexe em role_id/setor_id/function_id — papel, setor e função são
+ *   decisão manual do RH, não do legado (ver mapearFuncaoParaPapel).
  *
- * `nome` é a única exceção ao "só preenche se vazio": como a coluna é
- * NOT NULL, um usuário pré-cadastrado (ex.: atribuirGerente()) entra com um
- * nome provisório (prefixo do e-mail). Como este bloco só roda uma vez (o
- * gatilho acima nunca deixa rodar de novo), é seguro sobrescrever aqui com o
- * nome oficial do legado.
+ * Erros (legado indisponível, etc.) propagam pro `comSavepoint` do call site
+ * — nunca derrubam o login por causa disso.
  */
-export async function preencherDadosLegadoSeVazio(
+export async function sincronizarDadosLegado(
   userId: string,
   email: string,
 ): Promise<void> {
   const sql = getDatabase();
 
-  const [row] = await sql<{ codigoAps: string | null }[]>`
-    SELECT codigo_aps AS "codigoAps" FROM users WHERE id = ${userId} LIMIT 1
-  `;
-  if (!row || row.codigoAps) return;
-
   const legado = await buscarFuncionarioLegado(email);
   if (!legado) return;
 
+  const [atual] = await sql<
+    {
+      nome: string;
+      cpf: string | null;
+      telefone: string | null;
+      entityId: string | null;
+      dataAdmissao: string | null;
+      dataNascimento: string | null;
+      sexo: number | null;
+      estadoCivilCodigo: string | null;
+      cidade: string | null;
+      estado: string | null;
+      pis: string | null;
+      numeroBanco: string | null;
+      numeroConta: string | null;
+      digitoConta: string | null;
+      codigoAps: string | null;
+      codigoApsEntidade: string | null;
+    }[]
+  >`
+    SELECT
+      u.nome, u.cpf, u.telefone,
+      u.entity_id                              AS "entityId",
+      to_char(u.data_admissao, 'YYYY-MM-DD')   AS "dataAdmissao",
+      to_char(u.data_nascimento, 'YYYY-MM-DD') AS "dataNascimento",
+      u.sexo,
+      ec.codigo                                AS "estadoCivilCodigo",
+      u.cidade, u.estado, u.pis,
+      u.numero_banco                           AS "numeroBanco",
+      u.numero_conta                           AS "numeroConta",
+      u.digito_conta                           AS "digitoConta",
+      u.codigo_aps                             AS "codigoAps",
+      u.codigo_aps_entidade                    AS "codigoApsEntidade"
+    FROM users u
+    LEFT JOIN estados_civis ec ON ec.id = u.estado_civil_id
+    WHERE u.id = ${userId}
+    LIMIT 1
+  `;
+  if (!atual) return;
+
+  // Campos "de verdade do APS": entram na comparação e podem ser corrigidos.
+  const candidatos: [string, unknown, unknown][] = [
+    ["nome", legado.nome, atual.nome],
+    ["cpf", legado.cpf, atual.cpf],
+    ["data de admissão", legado.dataAdmissao, atual.dataAdmissao],
+    ["data de nascimento", legado.dataNascimento, atual.dataNascimento],
+    ["sexo", legado.sexo, atual.sexo],
+    // "estado civil" NÃO entra aqui — é exceção "preenche só se vazio",
+    // igual telefone/entidade (ver vaiPreencherEstadoCivil abaixo).
+    ["cidade", legado.cidade, atual.cidade],
+    ["estado", legado.uf, atual.estado],
+    ["pis", legado.pis, atual.pis],
+    ["banco", legado.numeroBanco, atual.numeroBanco],
+    ["conta", legado.numeroConta, atual.numeroConta],
+    ["dígito da conta", legado.digitoConta, atual.digitoConta],
+    ["código APS", legado.codigoAps, atual.codigoAps],
+    ["código APS+entidade", legado.codigoApsEntidade, atual.codigoApsEntidade],
+  ];
+  const alterados = candidatos
+    .filter(([, novo, velho]) => novo !== null && novo !== undefined && novo !== velho)
+    .map(([campo]) => campo);
+
   const entidadeCodigoAps =
-    legado.entidade && /^\d{6}$/.test(legado.entidade)
-      ? Number(legado.entidade)
-      : null;
+    legado.entidade && /^\d{6}$/.test(legado.entidade) ? Number(legado.entidade) : null;
+  const vaiPreencherTelefone = atual.telefone === null && legado.telefone !== null;
+  const vaiPreencherEntidade = atual.entityId === null && entidadeCodigoAps !== null;
+  const vaiPreencherEstadoCivil =
+    atual.estadoCivilCodigo === null && legado.estadoCivilCodigo !== null;
+
+  if (
+    alterados.length === 0 &&
+    !vaiPreencherTelefone &&
+    !vaiPreencherEntidade &&
+    !vaiPreencherEstadoCivil
+  ) {
+    return;
+  }
 
   await sql`
     UPDATE users SET
-      nome                = ${legado.nome},
-      entity_id           = COALESCE(entity_id, (SELECT id FROM entities WHERE codigo_aps = ${entidadeCodigoAps} LIMIT 1)),
-      cpf                 = COALESCE(cpf, ${legado.cpf ?? null}),
+      nome                = COALESCE(${legado.nome ?? null}, nome),
+      cpf                 = COALESCE(${legado.cpf ?? null}, cpf),
+      data_admissao       = COALESCE(${legado.dataAdmissao ?? null}, data_admissao),
+      data_nascimento     = COALESCE(${legado.dataNascimento ?? null}, data_nascimento),
+      sexo                = COALESCE(${legado.sexo ?? null}, sexo),
+      cidade              = COALESCE(${legado.cidade ?? null}, cidade),
+      estado              = COALESCE(${legado.uf ?? null}, estado),
+      pis                 = COALESCE(${legado.pis ?? null}, pis),
+      numero_banco        = COALESCE(${legado.numeroBanco ?? null}, numero_banco),
+      numero_conta        = COALESCE(${legado.numeroConta ?? null}, numero_conta),
+      digito_conta        = COALESCE(${legado.digitoConta ?? null}, digito_conta),
+      codigo_aps          = COALESCE(${legado.codigoAps ?? null}, codigo_aps),
+      codigo_aps_entidade = COALESCE(${legado.codigoApsEntidade ?? null}, codigo_aps_entidade),
+      -- Exceção: só preenche se ainda estiver vazio (edição manual protegida — ver docstring).
       telefone            = COALESCE(telefone, ${legado.telefone ?? null}),
-      data_admissao       = COALESCE(data_admissao, ${legado.dataAdmissao ?? null}),
-      data_nascimento     = COALESCE(data_nascimento, ${legado.dataNascimento ?? null}),
-      sexo                = COALESCE(sexo, ${legado.sexo ?? null}),
-      estado_civil_id     = COALESCE(estado_civil_id, (SELECT id FROM estados_civis WHERE codigo = ${legado.estadoCivilCodigo ?? null})),
-      cidade              = COALESCE(cidade, ${legado.cidade ?? null}),
-      estado              = COALESCE(estado, ${legado.uf ?? null}),
-      pis                 = COALESCE(pis, ${legado.pis ?? null}),
-      numero_banco        = COALESCE(numero_banco, ${legado.numeroBanco ?? null}),
-      numero_conta        = COALESCE(numero_conta, ${legado.numeroConta ?? null}),
-      digito_conta        = COALESCE(digito_conta, ${legado.digitoConta ?? null}),
-      codigo_aps          = COALESCE(codigo_aps, ${legado.codigoAps ?? null}),
-      codigo_aps_entidade = COALESCE(codigo_aps_entidade, ${legado.codigoApsEntidade ?? null})
+      entity_id           = COALESCE(entity_id, (SELECT id FROM entities WHERE codigo_aps = ${entidadeCodigoAps} LIMIT 1)),
+      estado_civil_id     = COALESCE(estado_civil_id, (SELECT id FROM estados_civis WHERE codigo = ${legado.estadoCivilCodigo ?? null}))
     WHERE id = ${userId}
   `;
+
+  if (vaiPreencherTelefone) alterados.push("telefone");
+  if (vaiPreencherEntidade) alterados.push("entidade");
+  if (vaiPreencherEstadoCivil) alterados.push("estado civil");
+  console.log(`[usuarios] dados de ${userId} sincronizados com o APS: ${alterados.join(", ")}`);
 }
 
 export async function criarUsuarioComSenha(input: {
@@ -382,6 +479,8 @@ export interface UsuarioDetalhado {
   funcao: string;
   setor: string;
   entidade: string | null;
+  /** Grupo/união da entidade do usuário (UNoB, ANRA, ACeAm, Asur, AAmaR, MLa) ou null. */
+  entidadeGrupo: string | null;
   status: "Ativo" | "Inativo";
   fotoUrl: string;
   iniciais: string;
@@ -522,6 +621,7 @@ const SELECT_USUARIO_DETALHADO = (sql: ReturnType<typeof postgres>) => sql`
     COALESCE(f.nome, '')                              AS funcao,
     COALESCE(s.nome, '')                              AS setor,
     en.nome                                            AS entidade,
+    en.grupo                                           AS "entidadeGrupo",
     CASE WHEN u.is_active THEN 'Ativo' ELSE 'Inativo' END AS status,
     COALESCE(u.avatar_url, '')                        AS "fotoUrl",
     u.telefone,
@@ -549,7 +649,7 @@ const SELECT_USUARIO_DETALHADO = (sql: ReturnType<typeof postgres>) => sql`
   LEFT JOIN setor         s  ON s.id = u.setor_id
   LEFT JOIN entities      en ON en.id = u.entity_id
   LEFT JOIN functions     f  ON f.id = u.function_id
-  LEFT JOIN users         m  ON m.id = u.manager_id
+  LEFT JOIN users         m  ON m.id = COALESCE((to_jsonb(s)->>'manager_id')::uuid, s.gestor_id)
   LEFT JOIN roles         r  ON r.id = u.role_id
   LEFT JOIN estados_civis ec ON ec.id = u.estado_civil_id
 `;
@@ -568,6 +668,46 @@ export async function listUsuarios(): Promise<UsuarioDetalhado[]> {
   return rows.map((row) => ({
     ...row,
     fotoUrl: montarAvatarUrl(row.id, row.fotoUrl),
+    iniciais: gerarIniciais(row.nome),
+  }));
+}
+
+/** Um aniversariante do mês, pro card do dashboard (/home). */
+export interface AniversarianteDTO {
+  id: string;
+  nome: string;
+  /** Dia do aniversário (1-31). */
+  dia: number;
+  /** Mês do aniversário (1-12) — sempre o mês corrente, ver listAniversariantesDoMes. */
+  mes: number;
+  fotoUrl: string;
+  iniciais: string;
+}
+
+/**
+ * Lista os ativos que fazem aniversário no mês corrente, ordenados pelo dia
+ * (sem considerar o ano de nascimento — `EXTRACT(MONTH/DAY ...)` ignora isso
+ * de propósito). Usa `data_nascimento`, preenchido pelo legado no 1º login
+ * (ver `sincronizarDadosLegado`) — quem não tem essa data (nunca logou,
+ * ou o legado não tinha o dado) simplesmente não aparece aqui.
+ */
+export async function listAniversariantesDoMes(): Promise<AniversarianteDTO[]> {
+  const sql = getDatabase();
+  const rows = await sql<{ id: string; nome: string; dia: number; avatar_url: string }[]>`
+    SELECT id, nome, EXTRACT(DAY FROM data_nascimento)::int AS dia, avatar_url
+    FROM users
+    WHERE is_active = TRUE
+      AND data_nascimento IS NOT NULL
+      AND EXTRACT(MONTH FROM data_nascimento) = EXTRACT(MONTH FROM CURRENT_DATE)
+    ORDER BY dia
+  `;
+  const mes = new Date().getMonth() + 1;
+  return rows.map((row) => ({
+    id: row.id,
+    nome: row.nome,
+    dia: row.dia,
+    mes,
+    fotoUrl: montarAvatarUrl(row.id, row.avatar_url),
     iniciais: gerarIniciais(row.nome),
   }));
 }
@@ -718,7 +858,7 @@ export async function listFuncoes(): Promise<OpcaoSelecao[]> {
 /**
  * Campos editáveis via PATCH /usuarios/:usuarioId. CPF não está aqui de
  * propósito — só o sistema legado escreve CPF (ver
- * inserirUsuarioComLegado/preencherDadosLegadoSeVazio).
+ * inserirUsuarioComLegado/sincronizarDadosLegado).
  */
 export interface AtualizarUsuarioInput {
   telefone: string | null;
@@ -744,6 +884,49 @@ async function resolverRoleId(
 }
 
 /**
+ * Notifica DP/COORDENADOR DP que telefone e/ou estado civil de alguém foram
+ * alterados AQUI (fora do APS) — o APS continua sendo o cadastro oficial pros
+ * demais sistemas (folha, etc.), então alguém do DP precisa replicar a
+ * mudança lá manualmente. Chamada tanto quando o PRÓPRIO colaborador edita
+ * seu telefone/estado civil (`atualizarPerfilProprio`, PATCH /auth/me) quanto
+ * quando um ADMIN corrige o telefone de outra pessoa (`atualizarUsuario`,
+ * PATCH /usuarios/:usuarioId) — estado civil só é editável pelo primeiro
+ * caminho.
+ *
+ * `atorId` é quem fez a edição de verdade — pode ser diferente do dono do
+ * cadastro (`usuarioId`) no caminho do ADMIN. `emitirParaPapeis` já exclui o
+ * próprio `atorId` da lista de destinatários: um DP que edita os PRÓPRIOS
+ * dados não notifica a si mesmo. `referenciaId` aponta sempre para o DONO do
+ * cadastro, nunca para o ator — é o perfil que precisa ser corrigido no APS.
+ *
+ * Best-effort, roda num SAVEPOINT (`comSavepoint`): se o INSERT falhar, não
+ * derruba a atualização de perfil já salva na MESMA transação (um
+ * `try/catch` comum deixaria a transação principal abortada — ver
+ * comSavepoint em database.ts).
+ */
+async function notificarDpParaAtualizarAps(
+  usuarioId: string,
+  atorId: string,
+  campos: string[],
+  nomeDono?: string,
+): Promise<void> {
+  if (campos.length === 0) return;
+
+  const deQuem = atorId !== usuarioId && nomeDono ? ` de ${nomeDono}` : "";
+  await comSavepoint(() =>
+    emitirParaPapeis(["DP", "COORDENADOR DP"], {
+      atorId,
+      tipo: "DIVERGENCIA_APS",
+      acao: `atualizou ${campos.join(" e ")}${deQuem} — atualize também no APS`,
+      detalhe: null,
+      referenciaTabela: "users",
+      referenciaId: usuarioId,
+      requerAcao: false,
+    }),
+  );
+}
+
+/**
  * Atualiza os campos editáveis de um usuário (cpf, telefone, setor,
  * função e papel). Retorna o usuário atualizado ou null se não existir.
  *
@@ -752,17 +935,27 @@ async function resolverRoleId(
  * alguém pra Setor Distrital + Pastor Distrital (ou tirar de lá) já
  * atualiza a participação no VR na hora, sem precisar rodar SQL manual
  * de novo (ver migration 019_users_participa_vr.sql pro ajuste inicial).
+ *
+ * `atorId` é quem está fazendo a edição (o ADMIN logado, nunca o dono do
+ * cadastro) — usado só para notificar DP/COORDENADOR DP quando o telefone
+ * muda (ver notificarDpParaAtualizarAps).
  */
 export async function atualizarUsuario(
   id: string,
   input: AtualizarUsuarioInput,
+  atorId: string,
 ): Promise<UsuarioDetalhado | null> {
   const sql = getDatabase();
 
   const roleId = await resolverRoleId(sql, input.roleCodigo);
 
+  const [antes] = await sql<{ telefone: string | null; nome: string }[]>`
+    SELECT telefone, nome FROM users WHERE id = ${id} LIMIT 1
+  `;
+  if (!antes) return null;
+
   // CPF não entra aqui de propósito — só o legado escreve (ver
-  // inserirUsuarioComLegado/preencherDadosLegadoSeVazio abaixo).
+  // inserirUsuarioComLegado/sincronizarDadosLegado abaixo).
   const updated = await sql`
     UPDATE users SET
       entity_id     = ${input.entidadeId},
@@ -780,6 +973,10 @@ export async function atualizarUsuario(
 
   if (updated.count === 0) {
     return null;
+  }
+
+  if (input.telefone !== antes.telefone) {
+    await notificarDpParaAtualizarAps(id, atorId, ["telefone"], antes.nome);
   }
 
   return getUsuarioPorId(id);
@@ -897,7 +1094,7 @@ export async function criarUsuarioImportado(input: {
  * a MESMA ENTIDADE de quem está criando (`criadoPorUserId`, o usuário
  * autenticado na rota). Os demais dados (cpf, telefone, nome oficial, etc.)
  * são preenchidos pelo APS no 1º login dessa pessoa, via
- * preencherDadosLegadoSeVazio() — que também corrige esse nome provisório.
+ * sincronizarDadosLegado() — que também corrige esse nome provisório.
  *
  * Existe para NÃO depender só da função vinda do legado (job_title_name),
  * que nem sempre indica corretamente quem é gerente — ver mapearFuncaoParaPapel.
@@ -939,6 +1136,60 @@ export async function atribuirGerente(input: {
   return (await getUsuarioPorId(created.id))!;
 }
 
+/** Lançado quando já existe um usuário com o e-mail informado (ver `criarUsuario`). */
+export class UsuarioJaExisteError extends Error {
+  constructor(message = "Já existe um usuário com esse e-mail.") {
+    super(message);
+    this.name = "UsuarioJaExisteError";
+  }
+}
+
+/** Campos de um usuário criado manualmente pelo ADMIN (ver POST /usuarios). */
+export interface CriarUsuarioInput {
+  nome: string;
+  email: string;
+  entidadeId: string;
+  setorId: string;
+  /** Código do papel/perfil de acesso (ex.: "COLABORADOR", "ADMIN"). */
+  roleCodigo: string;
+  /** Tipo de vínculo (CLT): "COLABORADOR" ou "APRENDIZ/ESTAGIÁRIO". */
+  tipoFuncionario: string;
+}
+
+/**
+ * Cria um usuário já com cadastro completo — ação do ADMIN (`POST /usuarios`).
+ * Ao contrário de `atribuirGerente`/`criarUsuarioImportado` (registros
+ * mínimos, completados pelo APS no 1º login), aqui entidade/setor/papel/
+ * tipo de vínculo já vêm preenchidos pelo admin na hora. Os demais dados
+ * (cpf, telefone, datas, salário...) continuam vindo do legado no 1º login,
+ * via `sincronizarDadosLegado` — esta função nunca os toca, e a senha
+ * fica nula de propósito (login é sempre por LDAP/AD, nunca local).
+ *
+ * Lança `UsuarioJaExisteError` se o e-mail já estiver em uso (checado por
+ * e-mail puro, igual `atribuirGerente`/`findOrCreateUsuarioLocal` — mesma
+ * pessoa não deveria ter dois cadastros em entidades diferentes).
+ */
+export async function criarUsuario(input: CriarUsuarioInput): Promise<UsuarioDetalhado> {
+  const sql = getDatabase();
+
+  if (await getUsuarioIdPorEmail(input.email)) {
+    throw new UsuarioJaExisteError();
+  }
+
+  const roleId = await resolverRoleId(sql, input.roleCodigo);
+
+  const [created] = await sql<{ id: string }[]>`
+    INSERT INTO users (nome, email, entity_id, setor_id, role_id, tipo_funcionario)
+    VALUES (
+      ${input.nome}, ${input.email}, ${input.entidadeId}, ${input.setorId},
+      ${roleId}, ${input.tipoFuncionario}
+    )
+    RETURNING id
+  `;
+
+  return (await getUsuarioPorId(created.id))!;
+}
+
 /**
  * Resolve o usuário local após um login bem-sucedido no LDAP (Microsoft AD).
  * Se já existe (por e-mail): atualiza last_login_at e retorna. Se não existe:
@@ -951,7 +1202,9 @@ export async function findOrCreateUsuarioLocal(email: string): Promise<AppUser> 
   const existente = await getUsuarioAuthPorEmail(email);
   if (existente) {
     await sql`UPDATE users SET last_login_at = NOW() WHERE id = ${existente.id}`;
-    await preencherDadosLegadoSeVazio(existente.id, email);
+    await comSavepoint(() => sincronizarDadosLegado(existente.id, email));
+    await comSavepoint(() => sincronizarFeriasLegado(existente.id));
+    await comSavepoint(() => sincronizarQualificacoesLegado(existente.id));
     return {
       id: existente.id,
       email: existente.email,
@@ -978,28 +1231,66 @@ export async function findOrCreateUsuarioLocal(email: string): Promise<AppUser> 
     WHERE u.id = ${id}
   `;
 
+  // Aqui o CPF já pode vir preenchido na hora (inserirUsuarioComLegado
+  // acima), então o sync já roda valendo no 1º login desta pessoa.
+  await comSavepoint(() => sincronizarFeriasLegado(id));
+  await comSavepoint(() => sincronizarQualificacoesLegado(id));
+
   return user;
 }
 
 /**
- * Atualização do próprio perfil (self-service): mexe SÓ em telefone. Não
+ * Atualização do próprio perfil (self-service): telefone e estado civil. Não
  * toca em setor/função/papéis — diferente de atualizarUsuario (RH). CPF não
  * é editável em lugar nenhum (nem aqui, nem em atualizarUsuario) — só o
  * sistema legado escreve CPF (ver inserirUsuarioComLegado abaixo).
+ *
+ * Telefone e estado civil, uma vez editados aqui, não são mais sobrescritos
+ * pelo APS no próximo login (ver sincronizarDadosLegado) — por isso, quando
+ * mudam, DP/COORDENADOR DP são notificados pra replicar a mudança lá
+ * manualmente (notificarDpParaAtualizarAps).
  */
 export async function atualizarPerfilProprio(
   id: string,
-  input: { telefone: string | null },
+  input: { telefone: string | null; estadoCivilCodigo?: string | null },
 ): Promise<UsuarioDetalhado | null> {
   const sql = getDatabase();
 
+  const [antes] = await sql<
+    { telefone: string | null; estadoCivilCodigo: string | null }[]
+  >`
+    SELECT u.telefone, ec.codigo AS "estadoCivilCodigo"
+    FROM users u
+    LEFT JOIN estados_civis ec ON ec.id = u.estado_civil_id
+    WHERE u.id = ${id}
+    LIMIT 1
+  `;
+  if (!antes) return null;
+
   const updated = await sql`
-    UPDATE users SET telefone = ${input.telefone}
+    UPDATE users SET
+      telefone        = ${input.telefone},
+      estado_civil_id = COALESCE(
+        (SELECT id FROM estados_civis WHERE codigo = ${input.estadoCivilCodigo ?? null}),
+        estado_civil_id
+      )
     WHERE id = ${id}
   `;
 
   if (updated.count === 0) {
     return null;
+  }
+
+  const camposAlterados: string[] = [];
+  if (input.telefone !== antes.telefone) camposAlterados.push("telefone");
+  if (
+    input.estadoCivilCodigo != null &&
+    input.estadoCivilCodigo !== antes.estadoCivilCodigo
+  ) {
+    camposAlterados.push("estado civil");
+  }
+  if (camposAlterados.length > 0) {
+    await notificarDpParaAtualizarAps(id, id, camposAlterados);
   }
 
   return getUsuarioPorId(id);

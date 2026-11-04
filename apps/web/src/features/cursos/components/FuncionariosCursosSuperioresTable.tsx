@@ -127,8 +127,9 @@ export function FuncionariosCursosSuperioresTable({
         </div>
       </CardHeader>
       <CardContent className="p-0">
+        <div className="scrollbar-thin max-h-[60vh] overflow-y-auto">
         <Table>
-          <TableHeader>
+          <TableHeader className="sticky top-0 z-10 bg-card">
             <TableRow className="hover:bg-transparent">
               <TableHead className="h-11 px-6">Nome</TableHead>
               <TableHead className="h-11">Departamento</TableHead>
@@ -209,6 +210,7 @@ export function FuncionariosCursosSuperioresTable({
             )}
           </TableBody>
         </Table>
+        </div>
       </CardContent>
     </Card>
   )

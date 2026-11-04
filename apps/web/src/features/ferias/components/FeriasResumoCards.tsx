@@ -20,8 +20,8 @@ interface CardConfig {
  */
 export function FeriasResumoCards({ resumo }: FeriasResumoCardsProps) {
   const cards: CardConfig[] = [
-    { label: 'Dias disponíveis', valor: String(resumo.diasDisponiveis).padStart(2, '0'), icon: CalendarCheck2 },
-    { label: 'Dias agendados', valor: String(resumo.diasAgendados).padStart(2, '0'), icon: CalendarClock },
+    { label: 'Dias disponíveis', valor: String(resumo.diasDisponiveis), icon: CalendarCheck2 },
+    { label: 'Dias agendados', valor: String(resumo.diasAgendados), icon: CalendarClock },
     { label: 'Ciclo', valor: resumo.periodoAquisitivo, icon: CalendarRange },
   ]
 
@@ -34,7 +34,7 @@ export function FeriasResumoCards({ resumo }: FeriasResumoCardsProps) {
               <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
                 {label}
               </p>
-              <p className="mt-0.5 truncate text-2xl font-bold tracking-tight">
+              <p className="mt-0.5 truncate text-xl font-bold tracking-tight">
                 {valor}
               </p>
             </div>

@@ -4,7 +4,6 @@
 
 /** Seções da tela de configurações (nav lateral). */
 export type ConfiguracoesSection =
-  | 'conta'
   | 'aparencia'
   | 'notificacoes'
-  | 'exibicao'
+  | 'documentacao-api'

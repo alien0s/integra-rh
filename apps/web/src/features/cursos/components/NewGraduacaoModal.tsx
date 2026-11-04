@@ -1,4 +1,5 @@
 import {
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -7,7 +8,7 @@ import {
   type FormEvent,
   type ReactNode,
 } from 'react'
-import { Download, Eye, FileText, GraduationCap, Upload, X } from 'lucide-react'
+import { Download, Eye, FileText, GraduationCap, Loader2, Upload, X } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import {
@@ -30,12 +31,31 @@ import {
 } from '@/components/ui/select'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { toast } from '@/hooks/use-toast'
-import { NIVEL_FORMACAO_LABEL } from '@/lib/cursos'
-import type { FormacaoAcademica, NivelFormacao, NovaFormacaoInput } from '../types'
+import { logsService } from '@/features/logs/services/logsService'
+import {
+  NIVEL_FORMACAO_LABEL,
+  TAMANHO_MAXIMO_ANEXO_BYTES,
+  TAMANHO_MAXIMO_ANEXO_MB,
+} from '@/lib/cursos'
+import { comprimirPdf } from '@/lib/pdf'
+import type {
+  EditarFormacaoInput,
+  FormacaoAcademica,
+  NivelFormacao,
+  NovaFormacaoInput,
+  SituacaoFormacao,
+} from '../types'
 
 interface NewGraduacaoModalProps {
   children: ReactNode
-  onCriar: (input: NovaFormacaoInput, arquivo?: File | null) => Promise<FormacaoAcademica>
+  /** Presente = modo edição (pré-preenche os campos); ausente = cadastro novo. */
+  formacao?: FormacaoAcademica
+  onCriar?: (input: NovaFormacaoInput, arquivo?: File | null) => Promise<FormacaoAcademica>
+  onEditar?: (
+    id: string,
+    input: EditarFormacaoInput,
+    arquivo?: File | null,
+  ) => Promise<FormacaoAcademica>
 }
 
 const currentYear = new Date().getFullYear()
@@ -63,9 +83,10 @@ function formatFileSize(size: number) {
   return `${(size / (1024 * 1024)).toFixed(1)} MB`
 }
 
-export function NewGraduacaoModal({ children, onCriar }: NewGraduacaoModalProps) {
+export function NewGraduacaoModal({ children, formacao, onCriar, onEditar }: NewGraduacaoModalProps) {
   const [open, setOpen] = useState(false)
   const [enviando, setEnviando] = useState(false)
+  const [compactando, setCompactando] = useState(false)
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
   const [arrastandoNaTela, setArrastandoNaTela] = useState(false)
@@ -111,6 +132,74 @@ export function NewGraduacaoModal({ children, onCriar }: NewGraduacaoModalProps)
     }
   }, [anoEntrada, anoSaida])
 
+  // Modo edição: ao abrir, pré-preenche com os dados da formação. Ao
+  // fechar, `limpar()` (abaixo) já limpa tudo — então reabrir em modo
+  // cadastro (sem `formacao`) continua funcionando normalmente.
+  useEffect(() => {
+    if (!open || !formacao) return
+    setNivel(formacao.nivel)
+    setCurso(formacao.curso)
+    setInstituicao(formacao.instituicao)
+    setAnoEntrada(String(formacao.anoInicio))
+    setAnoSaida(formacao.anoFim === null ? 'presente' : String(formacao.anoFim))
+  }, [open, formacao])
+
+  /**
+   * Valida o tamanho antes de aceitar o arquivo (o backend também recusa,
+   * mas aqui evita o upload desnecessário). Se for um PDF grande demais,
+   * compacta automaticamente (ver lib/pdf.ts) em vez de só rejeitar — é o
+   * caso comum de um diploma escaneado. Pra imagem não tem compactação:
+   * rejeita direto, como antes.
+   */
+  const selecionarArquivo = useCallback(
+    async (arquivo: File) => {
+      if (compactando) return
+
+      if (arquivo.size <= TAMANHO_MAXIMO_ANEXO_BYTES) {
+        setSelectedFile(arquivo)
+        return
+      }
+
+      if (arquivo.type !== 'application/pdf') {
+        toast({
+          title: 'Arquivo muito grande',
+          description: `O diploma precisa ter até ${TAMANHO_MAXIMO_ANEXO_MB} MB.`,
+          variant: 'destructive',
+          duration: 5000,
+        })
+        return
+      }
+
+      setCompactando(true)
+      try {
+        const comprimido = await comprimirPdf(arquivo, { maxBytes: TAMANHO_MAXIMO_ANEXO_BYTES })
+        setSelectedFile(comprimido)
+        toast({
+          title: 'PDF compactado',
+          description: `Reduzido de ${formatFileSize(arquivo.size)} para ${formatFileSize(comprimido.size)} para caber no limite de ${TAMANHO_MAXIMO_ANEXO_MB} MB.`,
+          duration: 4000,
+        })
+      } catch (error) {
+        logsService.reportarErro({
+          modulo: 'cursos',
+          rota: 'NewGraduacaoModal.selecionarArquivo',
+          codigo: 'COMPRESSAO_PDF_FALHOU',
+          mensagem: error instanceof Error ? error.message : 'Falha ao compactar o PDF',
+          stack: error instanceof Error ? (error.stack ?? null) : null,
+        })
+        toast({
+          title: 'Arquivo muito grande',
+          description: `Não foi possível reduzir o diploma abaixo de ${TAMANHO_MAXIMO_ANEXO_MB} MB. Tente um arquivo menor.`,
+          variant: 'destructive',
+          duration: 5000,
+        })
+      } finally {
+        setCompactando(false)
+      }
+    },
+    [compactando],
+  )
+
   // Com o dialog aberto, soltar um arquivo em qualquer ponto da tela conta
   // como upload do diploma — não precisa acertar a caixinha.
   useEffect(() => {
@@ -134,7 +223,7 @@ export function NewGraduacaoModal({ children, onCriar }: NewGraduacaoModalProps)
       event.preventDefault()
       setArrastandoNaTela(false)
       const arquivo = event.dataTransfer?.files?.[0]
-      if (arquivo) setSelectedFile(arquivo)
+      if (arquivo) selecionarArquivo(arquivo)
     }
 
     window.addEventListener('dragover', handleWindowDragOver)
@@ -146,10 +235,11 @@ export function NewGraduacaoModal({ children, onCriar }: NewGraduacaoModalProps)
       window.removeEventListener('dragleave', handleWindowDragLeave)
       window.removeEventListener('drop', handleWindowDrop)
     }
-  }, [open])
+  }, [open, selecionarArquivo])
 
   function limpar() {
     setSelectedFile(null)
+    setCompactando(false)
     setNivel('')
     setCurso('')
     setInstituicao('')
@@ -161,30 +251,35 @@ export function NewGraduacaoModal({ children, onCriar }: NewGraduacaoModalProps)
     event.preventDefault()
     if (!nivel || !podeEnviar) return
 
+    const situacao: SituacaoFormacao = anoSaida === 'presente' ? 'EM_ANDAMENTO' : 'CONCLUIDO'
+    const campos = {
+      nivel,
+      curso: curso.trim(),
+      instituicao: instituicao.trim(),
+      anoInicio: Number(anoEntrada),
+      anoFim: anoSaida === 'presente' ? null : Number(anoSaida),
+      situacao,
+    }
+
     setEnviando(true)
     try {
-      await onCriar(
-        {
-          nivel,
-          curso: curso.trim(),
-          instituicao: instituicao.trim(),
-          anoInicio: Number(anoEntrada),
-          anoFim: anoSaida === 'presente' ? null : Number(anoSaida),
-          situacao: anoSaida === 'presente' ? 'EM_ANDAMENTO' : 'CONCLUIDO',
-          anexoUrl: null,
-        },
-        selectedFile,
-      )
+      if (formacao) {
+        await onEditar?.(formacao.id, campos, selectedFile)
+      } else {
+        await onCriar?.({ ...campos, anexoUrl: null }, selectedFile)
+      }
       setOpen(false)
       limpar()
       toast({
-        title: 'Formação enviada',
-        description: 'Cadastrada como pendente — aguarda aprovação do RH.',
+        title: formacao ? 'Formação atualizada' : 'Formação enviada',
+        description: formacao
+          ? 'Atualizada — volta como pendente até o RH aprovar novamente.'
+          : 'Cadastrada como pendente — aguarda aprovação do RH.',
         duration: 4000,
       })
     } catch (error) {
       toast({
-        title: 'Não foi possível cadastrar',
+        title: formacao ? 'Não foi possível salvar' : 'Não foi possível cadastrar',
         description: error instanceof Error ? error.message : 'Tente novamente.',
         variant: 'destructive',
         duration: 5000,
@@ -195,7 +290,12 @@ export function NewGraduacaoModal({ children, onCriar }: NewGraduacaoModalProps)
   }
 
   function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
-    setSelectedFile(event.target.files?.[0] ?? null)
+    const arquivo = event.target.files?.[0]
+    if (arquivo) {
+      selecionarArquivo(arquivo)
+    } else {
+      setSelectedFile(null)
+    }
   }
 
   function handleRemoveFile() {
@@ -237,9 +337,11 @@ export function NewGraduacaoModal({ children, onCriar }: NewGraduacaoModalProps)
               <GraduationCap className="h-5 w-5" />
             </div>
             <div className="space-y-1">
-              <DialogTitle>Nova formação acadêmica</DialogTitle>
+              <DialogTitle>{formacao ? 'Editar formação acadêmica' : 'Nova formação acadêmica'}</DialogTitle>
               <DialogDescription>
-                Adicione as informações do curso. Entra como pendente até o RH aprovar.
+                {formacao
+                  ? 'Atualize as informações do curso. Volta como pendente até o RH aprovar novamente.'
+                  : 'Adicione as informações do curso. Entra como pendente até o RH aprovar.'}
               </DialogDescription>
             </div>
           </div>
@@ -342,10 +444,19 @@ export function NewGraduacaoModal({ children, onCriar }: NewGraduacaoModalProps)
               accept="image/*,.pdf"
               multiple={false}
               className="hidden"
+              disabled={compactando}
               onChange={handleFileChange}
             />
 
-            {!selectedFile && (
+            {compactando ? (
+              <div className="flex min-h-24 flex-col items-center justify-center gap-1.5 rounded-lg border border-dashed border-muted-foreground/30 bg-muted/20 px-4 py-3 text-center">
+                <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                <p className="text-sm font-medium">
+                  Compactando o PDF para caber em {TAMANHO_MAXIMO_ANEXO_MB} MB…
+                </p>
+                <p className="mt-0.5 text-xs text-muted-foreground">Pode levar alguns segundos.</p>
+              </div>
+            ) : !selectedFile ? (
               <div
                 role="button"
                 tabIndex={0}
@@ -366,13 +477,17 @@ export function NewGraduacaoModal({ children, onCriar }: NewGraduacaoModalProps)
                 <p className="text-sm font-medium">
                   {arrastandoNaTela
                     ? 'Solte o arquivo aqui'
-                    : 'Arraste o diploma aqui ou clique para selecionar'}
+                    : formacao?.anexoUrl
+                      ? 'Já tem um diploma anexado — arraste um novo aqui ou clique para substituir'
+                      : 'Arraste o diploma aqui ou clique para selecionar'}
                 </p>
-                <p className="mt-0.5 text-xs text-muted-foreground">PDF ou imagem</p>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  PDF ou imagem · até {TAMANHO_MAXIMO_ANEXO_MB} MB
+                </p>
               </div>
-            )}
+            ) : null}
 
-            {selectedFile && previewUrl ? (
+            {!compactando && selectedFile && previewUrl ? (
               <div className="flex items-center justify-between gap-3 rounded-lg border bg-background p-3">
                 <div className="flex min-w-0 items-center gap-3">
                   <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-md border bg-muted">
@@ -433,8 +548,14 @@ export function NewGraduacaoModal({ children, onCriar }: NewGraduacaoModalProps)
             <Button type="button" variant="outline" onClick={() => setOpen(false)}>
               Cancelar
             </Button>
-            <Button type="submit" disabled={enviando || !podeEnviar}>
-              {enviando ? 'Enviando…' : 'Adicionar formação'}
+            <Button type="submit" disabled={enviando || !podeEnviar || compactando}>
+              {enviando
+                ? formacao
+                  ? 'Salvando…'
+                  : 'Enviando…'
+                : formacao
+                  ? 'Salvar alterações'
+                  : 'Adicionar formação'}
             </Button>
           </DialogFooter>
         </form>

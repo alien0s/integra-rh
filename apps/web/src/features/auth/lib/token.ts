@@ -24,6 +24,17 @@ export interface AuthUsuario {
    * (que iniciou a personificação), para exibir na UI e voltar a ele depois.
    */
   personificadoPor?: PersonificadoPor
+  /**
+   * Códigos de módulo (moduloCodigo em AppSidebar.tsx) que este papel NÃO
+   * pode ver/acessar — ver moduloLiberado() em features/auth/lib/modulos.ts.
+   */
+  modulosRestritos?: string[]
+  /**
+   * Códigos de módulo liberados ANTECIPADAMENTE (sem cadeado) pra este papel
+   * durante o lançamento beta — ver moduloLiberadoNoBeta() em
+   * features/auth/lib/modulos.ts.
+   */
+  modulosBetaLiberados?: string[]
   /** Iniciais para o fallback do avatar (ex.: "EF"). */
   iniciais: string
 }
@@ -37,6 +48,8 @@ interface JwtPayload {
   funcao?: string
   papelCodigo?: string
   personificadoPor?: PersonificadoPor
+  modulosRestritos?: string[]
+  modulosBetaLiberados?: string[]
   exp?: number
 }
 
@@ -84,6 +97,8 @@ export function usuarioDoToken(token: string | null): AuthUsuario | null {
     funcao: payload.funcao,
     papelCodigo: payload.papelCodigo,
     personificadoPor: payload.personificadoPor,
+    modulosRestritos: payload.modulosRestritos,
+    modulosBetaLiberados: payload.modulosBetaLiberados,
     iniciais: calcularIniciais(nome),
   }
 }

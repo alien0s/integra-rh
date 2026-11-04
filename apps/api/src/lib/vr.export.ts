@@ -130,6 +130,8 @@ function formatarDataBr(data: Date | null): string {
   return `${dia}/${mes}/${data.getUTCFullYear()}`;
 }
 
+/** colocando comentário para separar datas que foram colocar em pt-br e trocar para en-us */
+
 /* ── 1. PDF (relatório visual) ─────────────────────────────────────────── */
 
 /**

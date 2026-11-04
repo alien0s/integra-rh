@@ -1,6 +1,7 @@
 import { useFeriasPessoal } from '@/features/ferias/hooks'
 import type { FeriasResumo } from '@/features/ferias/types'
 import { FeriasResumoCards } from './FeriasResumoCards'
+import { FeriasResumoCardsSkeleton } from './FeriasResumoCardsSkeleton'
 import { HistoricoSolicitacoes } from './HistoricoSolicitacoes'
 import { NovaSolicitacaoForm } from './NovaSolicitacaoForm'
 
@@ -13,6 +14,7 @@ const resumoVazio: FeriasResumo = {
   podeFracionarFerias: false,
   podeVenderFerias: false,
   exigeTrintaDias: false,
+  proximaAprovada: null,
 }
 
 /**
@@ -24,7 +26,8 @@ const resumoVazio: FeriasResumo = {
  * — bloqueia a seleção no calendário e o envio, não se aplica à folga.
  */
 export function FeriasPessoal() {
-  const { resumo, historico, solicitar, cancelar, excluir, aceitarAjuste } = useFeriasPessoal()
+  const { resumo, historico, isLoading, solicitar, cancelar, excluir, aceitarAjuste } =
+    useFeriasPessoal()
 
   // Regra: só pode ter UMA solicitação de FÉRIAS em andamento por vez
   // (PENDENTE, aguardando o DP, ou com ajuste de data sugerido). Folga não
@@ -35,6 +38,7 @@ export function FeriasPessoal() {
       h.tipoBase === 'FERIAS' &&
       (h.status === 'PENDENTE' ||
         h.status === 'APROVADO_GESTOR' ||
+        h.status === 'APROVADO_RH' ||
         h.status === 'AJUSTE_SUGERIDO'),
   )
 
@@ -59,7 +63,11 @@ export function FeriasPessoal() {
 
   return (
     <div className="flex flex-col gap-4">
-      <FeriasResumoCards resumo={resumo ?? resumoVazio} />
+      {isLoading ? (
+        <FeriasResumoCardsSkeleton />
+      ) : (
+        <FeriasResumoCards resumo={resumo ?? resumoVazio} />
+      )}
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-[3fr_2fr]">
         {/* A nova solicitação chama a API e recarrega resumo + histórico. */}

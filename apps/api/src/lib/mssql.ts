@@ -327,6 +327,165 @@ export async function buscarFuncionarioLegado(
   };
 }
 
+/** Um evento de férias (S-2230, motivo 15) vindo do eSocial. */
+export interface FeriasEsocialLegado {
+  idEvento: number;
+  matricula: string | null;
+  dataInicio: string | null; // ISO "YYYY-MM-DD"
+  dataFim: string | null; // ISO "YYYY-MM-DD" (pode ser null — ver skip em sincronizarFeriasLegado)
+}
+
+/**
+ * Busca somente o último período de férias já encerrado no APS, por CPF.
+ * Ordena pelo fim do período (não pela ordem de transmissão); retificações
+ * do mesmo período usam o maior id_evento como desempate. Somente leitura.
+ */
+export async function buscarUltimaFeriasEsocial(
+  cpf: string,
+): Promise<FeriasEsocialLegado | null> {
+  const { mssql: config } = getApiConfig();
+  if (!config.enabled || !cpf) return null;
+
+  const pool = await getMssql();
+  const res = await pool
+    .request()
+    .input("cpf", mssql.VarChar, cpf)
+    .query<{
+      id_evento: number;
+      matricula: string | null;
+      inicio: Date | string | null;
+      fim: Date | string | null;
+    }>(
+      `SELECT TOP 1
+          e.id_evento,
+          e.xml_envio.value('(//matricula)[1]',   'varchar(60)') AS matricula,
+          e.xml_envio.value('(//dtIniAfast)[1]',  'date')        AS inicio,
+          e.xml_envio.value('(//dtTermAfast)[1]', 'date')        AS fim
+       FROM dbo.eSocial_Eventos e
+       WHERE e.cod_layout = 'S2230'
+         AND e.exclusao = 0
+         AND e.xml_envio.value('(//codMotAfast)[1]', 'varchar(2)') = '15'
+         AND e.xml_envio.value('(//cpfTrab)[1]',     'varchar(14)') = @cpf
+         AND e.xml_envio.value('(//dtIniAfast)[1]',  'date') > '1900-01-01'
+         AND e.xml_envio.exist('//dtTermAfast[1]') = 1
+         AND e.xml_envio.value('(//dtTermAfast)[1]', 'date')
+             >= e.xml_envio.value('(//dtIniAfast)[1]', 'date')
+         AND e.xml_envio.value('(//dtTermAfast)[1]', 'date') < CAST(GETDATE() AS date)
+       ORDER BY fim DESC, inicio DESC, e.id_evento DESC`,
+    );
+
+  const r = res.recordset[0];
+  if (!r) return null;
+
+  return {
+    idEvento: r.id_evento,
+    matricula: r.matricula?.trim() || null,
+    dataInicio: paraDataISO(r.inicio),
+    dataFim: paraDataISO(r.fim),
+  };
+}
+
+/** Um curso/formação (catálogo CURSO, entidade virtual 98664) do legado. */
+export interface CursoLegado {
+  /** T2_pk — id do curso no catálogo CURSO (98664). Chave de dedup/origem. */
+  idCurso: number;
+  nome: string;
+  /** Instituição de ensino (char_2). */
+  instituicao: string | null;
+  /** Data de conclusão (datetime_0), ISO "YYYY-MM-DD". */
+  conclusao: string | null;
+}
+
+/** Formação acadêmica de um funcionário vinda do legado (EAV/virtual). */
+export interface QualificacoesLegado {
+  idEmployee: number;
+  /** Grau de instrução — 1 valor-resumo por pessoa (relacionamento 98695). */
+  escolaridade: string | null;
+  /** Cursos/formações — 0..N por pessoa (relacionamento 98694). */
+  cursos: CursoLegado[];
+}
+
+/**
+ * Busca a formação acadêmica de um funcionário no legado, pelo CPF — banco
+ * EAV/virtual (v_virtual_relationship_row + v_virtual_entity_row), chave
+ * T1_pk = id_employee. Resolve CPF → id_employee via `v_employee.code_national`
+ * (mesma `v_employee` de `QUERY_EMPLOYEE`, filtrando pelas entidades da
+ * ACEAM). Ver sincronizarQualificacoesLegado em lib/qualificacoes-legado.ts.
+ * Somente leitura.
+ */
+export async function buscarQualificacoesLegado(
+  cpf: string,
+): Promise<QualificacoesLegado | null> {
+  const { mssql: config } = getApiConfig();
+  if (!config.enabled || !cpf) return null;
+
+  const pool = await getMssql();
+
+  // CPF → id_employee.
+  const empRes = await pool
+    .request()
+    .input("cpf", mssql.VarChar, cpf)
+    .query<{ id_employee: number }>(
+      `SELECT TOP 1 v_employee.id_employee
+       FROM v_employee
+       WHERE v_employee.code_national = @cpf
+         AND v_employee.entity_code IN (${ENTITY_CODES.join(",")})`,
+    );
+  const idEmployee = empRes.recordset[0]?.id_employee;
+  if (!idEmployee) return null;
+
+  // Escolaridade: EMPLOYEE/GRAU_INSTRUCAO (relacionamento 98695, catálogo 98663).
+  const escRes = await pool
+    .request()
+    .input("idEmployee", mssql.Int, idEmployee)
+    .query<{ escolaridade: string }>(
+      `SELECT grau.name AS escolaridade
+       FROM v_virtual_relationship_row r
+       JOIN v_virtual_entity_row grau
+            ON grau.id_virtual_entity = 98663
+           AND grau.id_virtual_entity_row = r.T2_pk
+       WHERE r.id_virtual_relationship = 98695
+         AND r.T1_pk = @idEmployee`,
+    );
+
+  // Cursos: EMPLOYEE/CURSO (relacionamento 98694, catálogo 98664).
+  // Instituição = char_2 (char_1 não é a coluna certa — confirmado: char_2
+  // vem preenchida em 994/1007 linhas do legado inteiro, char_1 em só 7).
+  const cursosRes = await pool
+    .request()
+    .input("idEmployee", mssql.Int, idEmployee)
+    .query<{
+      id_curso: number;
+      curso: string;
+      instituicao: string | null;
+      conclusao: Date | string | null;
+    }>(
+      `SELECT
+          r.T2_pk AS id_curso,
+          curso.name AS curso,
+          r.char_2 AS instituicao,
+          r.datetime_0 AS conclusao
+       FROM v_virtual_relationship_row r
+       JOIN v_virtual_entity_row curso
+            ON curso.id_virtual_entity = 98664
+           AND curso.id_virtual_entity_row = r.T2_pk
+       WHERE r.id_virtual_relationship = 98694
+         AND r.T1_pk = @idEmployee
+       ORDER BY r.datetime_0`,
+    );
+
+  return {
+    idEmployee,
+    escolaridade: escRes.recordset[0]?.escolaridade?.trim() || null,
+    cursos: cursosRes.recordset.map((r) => ({
+      idCurso: r.id_curso,
+      nome: r.curso,
+      instituicao: r.instituicao?.trim() || null,
+      conclusao: paraDataISO(r.conclusao),
+    })),
+  };
+}
+
 /** Um feriado (nacional, estadual ou municipal) vindo do legado (Locality_Holiday). */
 export interface FeriadoLegado {
   data: string; // ISO "YYYY-MM-DD"

@@ -1,3 +1,3 @@
 export { LoginForm } from "./LoginForm"
 export type { LoginFormProps } from "./LoginForm"
-export { RequireAuth, RequireNaoColaborador, RequireAdmin, RequireVr, RequireLancamentoBeta, RedirectSeLogado } from "./AuthGuards"
+export { RequireAuth, RequireModulo, RequireLancamentoBeta, RedirectSeLogado } from "./AuthGuards"

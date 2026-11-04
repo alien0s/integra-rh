@@ -18,6 +18,13 @@ export function LoginPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const [error, setError] = useState<string | null>(null)
 
+  // Não usa AppLayout (que seta o título nas telas autenticadas) — reseta
+  // aqui pra não ficar com o título de uma tela anterior após logout (SPA,
+  // sem recarregar a página).
+  useEffect(() => {
+    document.title = "IntegraRH"
+  }, [])
+
   useEffect(() => {
     const token = searchParams.get("token")
     const err = searchParams.get("error")

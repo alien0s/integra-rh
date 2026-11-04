@@ -4,5 +4,6 @@ export type {
   UsuarioView,
   OpcaoSelecao,
   AtualizarUsuarioInput,
+  CriarUsuarioInput,
   AtividadeUsuario,
 } from './Usuario'

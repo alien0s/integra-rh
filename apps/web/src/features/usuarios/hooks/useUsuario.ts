@@ -42,6 +42,13 @@ export function useUsuario(id: string | undefined) {
     setUsuario((anterior) => (anterior ? { ...anterior, fotoUrl: url } : anterior))
   }
 
+  /** Remove a foto (storage + avatar_url) e limpa o avatar exibido. */
+  async function removerAvatar() {
+    if (!id) return
+    await usuariosService.removerAvatar(id)
+    setUsuario((anterior) => (anterior ? { ...anterior, fotoUrl: '' } : anterior))
+  }
+
   /** Atualiza os campos editáveis do usuário e sincroniza o estado local. */
   async function atualizarUsuario(input: AtualizarUsuarioInput) {
     if (!id) return
@@ -49,5 +56,13 @@ export function useUsuario(id: string | undefined) {
     setUsuario(atualizado)
   }
 
-  return { usuario, isLoading, error, atualizarAvatar, atualizarUsuario, recarregar }
+  return {
+    usuario,
+    isLoading,
+    error,
+    atualizarAvatar,
+    removerAvatar,
+    atualizarUsuario,
+    recarregar,
+  }
 }

@@ -1,12 +1,11 @@
 import type { ComponentProps } from "react"
 import {
+  Bug,
   Fingerprint,
   Megaphone,
   GraduationCap,
   Hamburger,
-  Home,
   Palmtree,
-  Settings,
   Table2,
   UsersRound,
 } from "lucide-react"
@@ -22,39 +21,10 @@ import {
 } from "@/components/ui/sidebar"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { AppLogo } from "@/features/app/components/AppLogo"
-import { NavMain } from "@/features/app/components/NavMain"
+import { NavMain, type NavMainItem } from "@/features/app/components/NavMain"
 import { NavUser } from "@/features/app/components/NavUser"
 import { useAuth } from "@/features/auth/context"
-
-/**
- * Papéis liberados pro VR (por `codigo`, catálogo `roles`) além de ADMIN: DP,
- * COORDENADOR DP, ASSISTENTE (Tesoureiro Assistente, nível 4) e TESOUREIRO
- * (nível 5). Mesmo conjunto em AuthGuards.tsx (RequireVr) e no back
- * (PAPEIS_LIBERADOS_VR em vr.routes.ts, com o mapeamento código → id de cada
- * papel documentado lá) — sem módulo compartilhado entre os deployables,
- * mantenha as três listas em sincronia. Ver também docs/vr.md.
- */
-const PAPEIS_LIBERADOS_VR = new Set(["DP", "COORDENADOR DP", "ASSISTENTE", "TESOUREIRO"])
-
-/**
- * Papéis liberados em "Cursos e qualificações" durante o beta, além de
- * ADMIN — RH já modera (aprovar/recusar) cursos/formações/idiomas nessa tela
- * fora do beta. Mesmo conjunto em App.tsx (PAPEIS_LIBERADOS_CURSOS_BETA) e
- * no backend (PAPEIS_RH em qualificacoes.routes.ts) — mantenha os três em
- * sincronia.
- */
-const PAPEIS_LIBERADOS_CURSOS_BETA = new Set(["RH"])
-
-/**
- * Lançamento pra algumas pessoas (por enquanto): todo item da sidebar fica
- * com cadeado (não navega) pra quem não é ADMIN — EXCETO VR, que já tem seu
- * próprio controle de acesso (podeVerVr), e Cursos e qualificações pra quem
- * está em PAPEIS_LIBERADOS_CURSOS_BETA. ADMIN sempre vê tudo liberado. Isso é
- * só uma camada temporária por cima das regras de visibilidade de sempre
- * (somenteNaoColaborador/somenteAdmin/somenteVr, que continuam decidindo
- * quem VÊ cada item) — desative aqui quando lançar geral.
- */
-const LANCAMENTO_BETA_ATIVO = true
+import { moduloLiberado, moduloLiberadoNoBeta } from "@/features/auth/lib/modulos"
 
 const sidebarData = {
   navMain: [
@@ -62,57 +32,55 @@ const sidebarData = {
       title: "Anúncios",
       url: "/home",
       icon: Megaphone,
+      moduloCodigo: "home",
     },
     {
       title: "Usuários",
       url: "/usuarios",
       icon: UsersRound,
-      // COLABORADOR só vê os próprios dados — sem acesso à tela de Usuários
-      // (nem a sidebar mostra, nem a rota deixa entrar por URL direta — ver
-      // RequireNaoColaborador em App.tsx e bloquearColaborador na API).
-      somenteNaoColaborador: true,
+      moduloCodigo: "usuarios",
     },
     {
       title: "Cursos e qualificações",
       url: "/cursos",
       icon: GraduationCap,
-      // RH já modera cursos/formações/idiomas aqui — não fica com cadeado
-      // durante o beta (ver PAPEIS_LIBERADOS_CURSOS_BETA acima).
-      papeisLiberadosBeta: PAPEIS_LIBERADOS_CURSOS_BETA,
+      moduloCodigo: "cursos",
     },
     {
       title: "Férias",
       url: "/ferias",
       icon: Palmtree,
+      moduloCodigo: "ferias",
     },
     {
       title: "Pontos",
       url: "/ponto",
       icon: Fingerprint,
-    },
-    {
-      title: "Configurações",
-      url: "/configuracoes",
-      icon: Settings,
+      moduloCodigo: "ponto",
     },
     {
       title: "Tabelas",
       url: "/tabelas",
       icon: Table2,
-      // Só ADMIN (nível 7) vê este item — ver RequireAdmin em App.tsx e
-      // exigirPapeis() (sem argumentos = só ADMIN) na API.
-      somenteAdmin: true,
+      moduloCodigo: "tabelas",
     },
     {
       title: "VR",
       url: "/vr",
       icon: Hamburger,
-      // Só DP (ou os IDs liberados) vê este item — ver RequireVr em App.tsx e
-      // exigirAcessoVr na API (vr.routes.ts).
-      somenteVr: true,
+      moduloCodigo: "vr",
     },
   ],
 }
+
+/**
+ * Catálogo dos itens do sidebar — reaproveitado pela tela admin
+ * "Visibilidade de módulos" (ModulosVisibilidadeAdmin.tsx) como a lista de
+ * linhas da matriz (módulo × papel). O catálogo de módulos em si (título,
+ * url, ícone) continua definido aqui, em código — só a visibilidade por
+ * papel é configurável (modulosRestritos, via modulos_visibilidade).
+ */
+export const MODULOS_SIDEBAR = sidebarData.navMain
 
 /**
  * Navegação lateral principal do ERP.
@@ -120,27 +88,22 @@ const sidebarData = {
 export function AppSidebar(props: ComponentProps<typeof Sidebar>) {
   const { open } = useSidebar()
   const { usuario } = useAuth()
-  const ehColaborador = usuario?.papelCodigo === "COLABORADOR"
-  const ehAdmin = usuario?.papelCodigo === "ADMIN"
-  const podeVerVr =
-    ehAdmin ||
-    (usuario?.papelCodigo !== undefined && PAPEIS_LIBERADOS_VR.has(usuario.papelCodigo))
 
-  const navMain = sidebarData.navMain
-    .filter(
-      (item) =>
-        !(item.somenteNaoColaborador && ehColaborador) &&
-        !(item.somenteAdmin && !ehAdmin) &&
-        !(item.somenteVr && !podeVerVr),
-    )
+  const navMain: NavMainItem[] = sidebarData.navMain
+    .filter((item) => moduloLiberado(usuario, item.moduloCodigo))
     .map((item) => ({
       ...item,
-      locked:
-        LANCAMENTO_BETA_ATIVO &&
-        !ehAdmin &&
-        !item.somenteVr &&
-        !(usuario?.papelCodigo !== undefined && item.papeisLiberadosBeta?.has(usuario.papelCodigo)),
+      locked: !moduloLiberadoNoBeta(usuario, item.moduloCodigo),
     }))
+
+  // Logs (diagnóstico de erros inesperados do backend) não é um módulo de
+  // negócio configurável por papel — não entra em MODULOS_SIDEBAR nem na
+  // matriz "Visibilidade de módulos" (tela Tabelas). É uma ferramenta
+  // interna, visível só para ADMIN, mesma regra hardcoded de /configuracoes
+  // (RequireLancamentoBeta, ver App.tsx).
+  if (usuario?.papelCodigo === "ADMIN") {
+    navMain.push({ title: "Logs", url: "/logs", icon: Bug, locked: false })
+  }
 
   return (
     <Sidebar

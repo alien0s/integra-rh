@@ -14,6 +14,7 @@ import {
   excluirPapel,
   excluirSetor,
   GRUPOS_ENTIDADE,
+  GerenteSetorInvalidoError,
   listEntidades,
   listFuncoesCompleto,
   listPapeis,
@@ -27,6 +28,12 @@ import {
   type Setor,
   type SetorInput,
 } from "../lib/tabelas.js";
+import {
+  definirLiberadoAntecipado,
+  definirVisibilidade,
+  listModulosVisibilidade,
+  type ModuloVisibilidadeOverride,
+} from "../lib/modulosVisibilidade.js";
 import { bloquearColaborador, exigirPapeis } from "../plugins/auth.js";
 import type { ApiListResponse, ApiResponse } from "../types/api.js";
 
@@ -206,6 +213,8 @@ export async function tabelasRoutes(app: FastifyInstance) {
           required: ["nome"],
           properties: {
             nome: { type: "string", minLength: 1 },
+            gestorId: { type: ["string", "null"], format: "uuid" },
+            managerId: { type: ["string", "null"], format: "uuid" },
           },
           additionalProperties: false,
         },
@@ -213,9 +222,12 @@ export async function tabelasRoutes(app: FastifyInstance) {
     },
     async (request, reply) => {
       try {
-        const setor = await criarSetor(request.body);
+        const setor = await criarSetor(request.body, request.user);
         return reply.code(201).send({ data: setor });
       } catch (error) {
+        if (error instanceof GerenteSetorInvalidoError) {
+          return reply.code(400).send({ message: error.message });
+        }
         const tratado = tratarErroPg(error, {
           unique: "Já existe um setor com esse nome.",
         });
@@ -241,6 +253,8 @@ export async function tabelasRoutes(app: FastifyInstance) {
           required: ["nome"],
           properties: {
             nome: { type: "string", minLength: 1 },
+            gestorId: { type: ["string", "null"], format: "uuid" },
+            managerId: { type: ["string", "null"], format: "uuid" },
           },
           additionalProperties: false,
         },
@@ -248,12 +262,15 @@ export async function tabelasRoutes(app: FastifyInstance) {
     },
     async (request, reply) => {
       try {
-        const setor = await atualizarSetor(request.params.id, request.body);
+        const setor = await atualizarSetor(request.params.id, request.body, request.user);
         if (!setor) {
           return reply.code(404).send({ message: "Setor não encontrado" });
         }
         return { data: setor };
       } catch (error) {
+        if (error instanceof GerenteSetorInvalidoError) {
+          return reply.code(400).send({ message: error.message });
+        }
         const tratado = tratarErroPg(error, {
           unique: "Já existe um setor com esse nome.",
         });
@@ -501,6 +518,95 @@ export async function tabelasRoutes(app: FastifyInstance) {
         return reply.code(404).send({ message: "Papel não encontrado" });
       }
       return reply.code(204).send(undefined);
+    },
+  );
+
+  /* ── Visibilidade de módulos (sidebar + rota) por papel ────────────────
+   * Diferente das listas acima (entidades/setores/funções/papéis), a leitura
+   * aqui também é ADMIN-only (exigirPapeis(), não bloquearColaborador): só a
+   * própria tela admin consome essa lista — não alimenta dropdown nenhum de
+   * outra tela usada por DP/RH/Coordenador, então não há motivo pra abrir
+   * pra mais papéis. Ver lib/modulosVisibilidade.ts e docs do plano da
+   * feature (ModulosVisibilidadeAdmin.tsx no front). */
+
+  app.get<{ Reply: ApiListResponse<ModuloVisibilidadeOverride> }>(
+    "/tabelas/modulos-visibilidade",
+    {
+      onRequest: [app.authenticate, exigirPapeis()],
+      schema: {
+        tags: ["Tabelas — Visibilidade de módulos"],
+        summary: "Lista as exceções de visibilidade de módulo por papel",
+      },
+    },
+    async () => {
+      const excecoes = await listModulosVisibilidade();
+      return { data: excecoes, total: excecoes.length };
+    },
+  );
+
+  app.patch<{
+    Params: { moduloCodigo: string; roleId: string };
+    Body: { visivel: boolean };
+    Reply: ApiResponse<ModuloVisibilidadeOverride> | { message: string };
+  }>(
+    "/tabelas/modulos-visibilidade/:moduloCodigo/:roleId",
+    {
+      onRequest: [app.authenticate, exigirPapeis()],
+      schema: {
+        tags: ["Tabelas — Visibilidade de módulos"],
+        summary: "Define se um papel vê/acessa um módulo",
+        body: {
+          type: "object",
+          required: ["visivel"],
+          properties: {
+            visivel: { type: "boolean" },
+          },
+          additionalProperties: false,
+        },
+      },
+    },
+    async (request, reply) => {
+      const { moduloCodigo, roleId } = request.params;
+      const atualizado = await definirVisibilidade(moduloCodigo, roleId, request.body.visivel);
+      if (!atualizado) {
+        return reply.code(404).send({ message: "Papel não encontrado" });
+      }
+      return { data: atualizado };
+    },
+  );
+
+  app.patch<{
+    Params: { moduloCodigo: string; roleId: string };
+    Body: { liberadoAntecipado: boolean };
+    Reply: ApiResponse<ModuloVisibilidadeOverride> | { message: string };
+  }>(
+    "/tabelas/modulos-visibilidade/:moduloCodigo/:roleId/liberado-antecipado",
+    {
+      onRequest: [app.authenticate, exigirPapeis()],
+      schema: {
+        tags: ["Tabelas — Visibilidade de módulos"],
+        summary: "Libera (ou não) um módulo antecipadamente pra um papel, durante o lançamento beta",
+        body: {
+          type: "object",
+          required: ["liberadoAntecipado"],
+          properties: {
+            liberadoAntecipado: { type: "boolean" },
+          },
+          additionalProperties: false,
+        },
+      },
+    },
+    async (request, reply) => {
+      const { moduloCodigo, roleId } = request.params;
+      const atualizado = await definirLiberadoAntecipado(
+        moduloCodigo,
+        roleId,
+        request.body.liberadoAntecipado,
+      );
+      if (!atualizado) {
+        return reply.code(404).send({ message: "Papel não encontrado" });
+      }
+      return { data: atualizado };
     },
   );
 }

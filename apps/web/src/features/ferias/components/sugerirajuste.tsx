@@ -32,14 +32,14 @@ interface SugerirAjusteDialogProps {
   onSugerirAjuste?: (id: string, dataInicioSugerida: string, motivo: string) => void
 }
 
-/** Deslocamento máximo (dias, pra antes ou depois) que o DP pode sugerir — espelha a API. */
+/** Deslocamento máximo (dias, pra antes ou depois) que o RH pode sugerir — espelha a API. */
 const LIMITE_AJUSTE_DP_DIAS = 5
 
 /**
  * Diálogo "Sugerir ajuste de data" — alternativa à confirmação direta (2ª
- * etapa): o DP devolve ao colaborador uma sugestão de novo início (até
+ * etapa): o RH devolve ao colaborador uma sugestão de novo início (até
  * LIMITE_AJUSTE_DP_DIAS dias antes ou depois do período atual, mesma
- * duração) em vez de confirmar. Volta pro colaborador aceitar (ver
+ * duração) em vez de aprovar. Volta pro colaborador aceitar (ver
  * podeAceitarAjuste em FeriasRequestCard.tsx).
  */
 export function SugerirAjusteDialog({
@@ -58,7 +58,7 @@ export function SugerirAjusteDialog({
   const [novaDataInicio, setNovaDataInicio] = useState(dataOriginal)
   const [motivoAjusteForm, setMotivoAjusteForm] = useState('')
 
-  // Janela permitida pro ajuste do DP — mesmo limite validado na API.
+  // Janela permitida pro ajuste do RH — mesmo limite validado na API.
   const ajusteMinData = addDays(inicioFerias, -LIMITE_AJUSTE_DP_DIAS)
   const ajusteMaxData = addDays(inicioFerias, LIMITE_AJUSTE_DP_DIAS)
 

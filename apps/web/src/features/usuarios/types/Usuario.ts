@@ -8,6 +8,8 @@ export interface Usuario {
   funcao: string
   setor: string
   entidade: string | null
+  /** Grupo/união da entidade do usuário (UNoB, ANRA, ACeAm, Asur, AAmaR, MLa) ou null. */
+  entidadeGrupo: string | null
   status: 'Ativo' | 'Inativo'
   fotoUrl: string
   iniciais: string
@@ -72,6 +74,31 @@ export interface AtualizarUsuarioInput {
   funcaoId: string | null
   /** Código do papel/perfil de acesso (ex.: "ADMIN") ou null. */
   roleCodigo: string | null
+  /**
+   * Código do estado civil (ex.: "SOLTEIRO") — OPCIONAL: só o modo
+   * `apenasContato` (autoatendimento do colaborador, em EditarUsuarioModal)
+   * preenche e envia. A edição completa do ADMIN nunca inclui este campo —
+   * o backend nem aceita (PATCH /usuarios/:usuarioId não tem essa
+   * propriedade no schema).
+   */
+  estadoCivilCodigo?: string | null
+}
+
+/**
+ * Campos de um usuário criado manualmente pelo ADMIN (ver
+ * CriarUsuarioDialog.tsx) — ao contrário da edição, aqui tudo é obrigatório:
+ * é um cadastro novo, não um ajuste parcial. Os demais dados (cpf, telefone,
+ * datas, salário...) vêm do legado no 1º login dessa pessoa.
+ */
+export interface CriarUsuarioInput {
+  nome: string
+  email: string
+  entidadeId: string
+  setorId: string
+  /** Código do papel/perfil de acesso (ex.: "COLABORADOR", "ADMIN"). */
+  roleCodigo: string
+  /** Tipo de vínculo (CLT): "COLABORADOR" ou "APRENDIZ/ESTAGIÁRIO". */
+  tipoFuncionario: string
 }
 
 /**
@@ -89,5 +116,5 @@ export interface AtividadeUsuario {
   contraparteNome: string
   /** true = o dono do perfil foi quem agiu; false = alguém agiu sobre ele. */
   euFizFoi: boolean
-  icone: 'arquivo' | 'documento' | 'curso' | 'obrigacao' | 'folga'
+  icone: 'arquivo' | 'documento' | 'curso' | 'obrigacao' | 'folga' | 'divergencia' | 'ferias'
 }

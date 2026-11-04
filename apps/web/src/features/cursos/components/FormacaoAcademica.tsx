@@ -1,4 +1,4 @@
-import { Plus, StickyNote as StickyNoteCheck, Trash2 } from 'lucide-react'
+import { Pencil, Plus, StickyNote as StickyNoteCheck, Trash2 } from 'lucide-react'
 
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -8,13 +8,22 @@ import { useToast } from '@/hooks/use-toast'
 import { CURSOS_STYLES, formatarTituloFormacao } from '@/lib/cursos'
 import { abrirArquivo } from '@/features/visualizador-arquivo'
 import { cursosService } from '../services'
-import type { FormacaoAcademica as FormacaoAcademicaType, NovaFormacaoInput } from '../types'
+import type {
+  EditarFormacaoInput,
+  FormacaoAcademica as FormacaoAcademicaType,
+  NovaFormacaoInput,
+} from '../types'
 import { NewGraduacaoModal } from './NewGraduacaoModal'
 
 interface FormacaoAcademicaProps {
   data: FormacaoAcademicaType[]
   hideAddButton?: boolean
   onCriar?: (input: NovaFormacaoInput, arquivo?: File | null) => Promise<FormacaoAcademicaType>
+  onEditar?: (
+    id: string,
+    input: EditarFormacaoInput,
+    arquivo?: File | null,
+  ) => Promise<FormacaoAcademicaType>
   onExcluir?: (id: string) => Promise<unknown> | void
 }
 
@@ -32,6 +41,7 @@ export function FormacaoAcademica({
   data,
   hideAddButton,
   onCriar,
+  onEditar,
   onExcluir,
 }: FormacaoAcademicaProps) {
   const { toast } = useToast()
@@ -116,7 +126,21 @@ export function FormacaoAcademica({
                         Diploma anexado
                       </Badge>
                     )}
+                    {item.status === 'PENDENTE' && (
+                      <Badge
+                        variant="secondary"
+                        className="bg-amber-100 text-amber-700 hover:bg-amber-100 dark:bg-amber-900/30 dark:text-amber-400"
+                      >
+                        Aguardando aprovação do RH
+                      </Badge>
+                    )}
                   </div>
+                  {item.status === 'RECUSADO' && item.motivoRecusa && (
+                    <div className="mt-1 rounded-md border border-red-200 bg-red-50 p-2 text-xs text-red-700 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-400">
+                      <span className="font-medium">Recusado pelo RH: </span>
+                      {item.motivoRecusa}
+                    </div>
+                  )}
                 </div>
                 <div className="flex shrink-0 items-center gap-1">
                   {item.anexoUrl && (
@@ -134,6 +158,19 @@ export function FormacaoAcademica({
                     >
                       <StickyNoteCheck className="h-4 w-4" />
                     </Button>
+                  )}
+                  {onEditar && (
+                    <NewGraduacaoModal formacao={item} onEditar={onEditar}>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                        aria-label={`Editar ${item.curso}`}
+                      >
+                        <Pencil className="h-4 w-4" />
+                      </Button>
+                    </NewGraduacaoModal>
                   )}
                   {onExcluir && (
                     <Button

@@ -1,10 +1,10 @@
 import { getToken } from '@/lib/auth'
-import type { Aniversariante, DashboardData, FeriasStatusMock } from '../types'
+import { feriasService } from '@/features/ferias/services'
+import type { Aniversariante, DashboardData, FeriasStatus } from '../types'
 
 /**
- * Service do dashboard (Home). Comunicados já vêm da API real
- * (GET /comunicados/ativos, no mesmo padrão de cursosService.ts). Eventos,
- * férias e aniversariantes continuam mock até esses módulos serem ligados.
+ * Service do dashboard (Home). Comunicados, férias e aniversariantes já vêm
+ * da API real. Eventos continuam mock até esse módulo ser ligado.
  */
 
 const API_URL = '/api'
@@ -48,18 +48,6 @@ const DIAS_SEMANA_LABEL: Record<number, string> = {
   6: 'Todo sábado',
 }
 
-const feriasMock: FeriasStatusMock = {
-  diasParaFerias: 18,
-  periodo: '10 – 30 de novembro',
-}
-
-const aniversariantesMock: Aniversariante[] = [
-  { id: '1', nome: 'Beatriz Lima', data: '3 de setembro', fotoUrl: 'https://i.pravatar.cc/150?img=5', iniciais: 'BL' },
-  { id: '2', nome: 'Rafael Souza', data: '12 de setembro', fotoUrl: 'https://i.pravatar.cc/150?img=13', iniciais: 'RS' },
-  { id: '3', nome: 'Camila Torres', data: '20 de setembro', fotoUrl: 'https://i.pravatar.cc/150?img=25', iniciais: 'CT' },
-  { id: '4', nome: 'Diego Ferreira', data: '27 de setembro', fotoUrl: 'https://i.pravatar.cc/150?img=33', iniciais: 'DF' },
-]
-
 /** Formata a data (venha como "2026-09-15" ou "2026-09-15T00:00:00.000Z") pra "15/09/2026". */
 function formatarData(dataIso: string): string {
   // timeZone: 'UTC' evita a data "voltar" um dia por causa do fuso local,
@@ -82,15 +70,40 @@ async function getComunicadosAtivos(): Promise<DashboardData['comunicados']> {
   }))
 }
 
-export const homeService = {
-  /** Dados completos do dashboard (comunicados reais; resto ainda mock). */
-  async getDashboardData(): Promise<DashboardData> {
-    const comunicados = await getComunicadosAtivos()
+async function getAniversariantesDoMes(): Promise<Aniversariante[]> {
+  const response = await fetch(`${API_URL}/usuarios/aniversariantes`, {
+    headers: authHeaders(),
+  })
+  if (!response.ok) return lancarErro(response, 'Falha ao buscar os aniversariantes')
+  const json = (await response.json()) as ApiListResponse<Aniversariante>
+  return json.data
+}
 
-    return {
-      comunicados,
-      ferias: feriasMock,
-      aniversariantes: aniversariantesMock,
-    }
+async function getFeriasStatus(): Promise<FeriasStatus> {
+  const resumo = await feriasService.getResumo()
+  return resumo.proximaAprovada
+    ? {
+        diasParaFerias: resumo.proximaAprovada.diasParaInicio,
+        periodo: resumo.proximaAprovada.periodo,
+      }
+    : { diasParaFerias: null }
+}
+
+export const homeService = {
+  /** Dados completos do dashboard (comunicados, férias e aniversariantes reais). */
+  async getDashboardData(): Promise<DashboardData> {
+    const [comunicados, ferias, aniversariantes] = await Promise.all([
+      getComunicadosAtivos(),
+      getFeriasStatus(),
+      getAniversariantesDoMes(),
+    ])
+
+    return { comunicados, ferias, aniversariantes }
   },
+
+  /**
+   * Só o status de férias — usado pra atualizar o card em tempo real (ver
+   * useHomeDashboard) sem recarregar comunicados/aniversariantes junto.
+   */
+  getFeriasStatus,
 }

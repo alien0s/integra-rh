@@ -1,6 +1,6 @@
-import { useState, type ReactNode } from 'react'
+import { useId, useState, type ReactNode } from 'react'
 
-import { Check, Pencil, Plus, Trash2, X } from 'lucide-react'
+import { Check, ChevronsUpDown, Pencil, Plus, Trash2, X } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import {
@@ -10,10 +10,20 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card'
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from '@/components/ui/command'
 import { Input } from '@/components/ui/input'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
   SelectTrigger,
   SelectValue,
@@ -40,8 +50,78 @@ export interface RegistroColumn<TDraft extends Record<string, string>> {
   required?: boolean
   /** Opções do <select>, quando type === 'select'. */
   options?: { value: string; label: string }[]
+  /** Ativa a pesquisa pelo rótulo das opções no dropdown. */
+  searchable?: boolean
+  searchPlaceholder?: string
   /** Classe aplicada ao <th>/<td> (ex.: largura da coluna). */
   className?: string
+}
+
+function SelectPesquisavel({
+  value,
+  options = [],
+  label,
+  placeholder,
+  searchPlaceholder,
+  disabled,
+  onValueChange,
+}: {
+  value: string
+  options?: { value: string; label: string }[]
+  label: string
+  placeholder?: string
+  searchPlaceholder?: string
+  disabled?: boolean
+  onValueChange: (value: string) => void
+}) {
+  const [aberto, setAberto] = useState(false)
+  const listaId = useId()
+
+  return (
+    <Popover open={aberto} onOpenChange={setAberto}>
+      <PopoverTrigger asChild>
+        <Button
+          type="button"
+          variant="outline"
+          role="combobox"
+          aria-label={label}
+          aria-expanded={aberto}
+          aria-controls={listaId}
+          disabled={disabled}
+          className="w-full min-w-0 justify-between"
+        >
+          <span className="truncate">
+            {options.find((opcao) => opcao.value === value)?.label ?? placeholder ?? 'Selecione'}
+          </span>
+          <ChevronsUpDown data-icon="inline-end" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-[min(28rem,calc(100vw-2rem))] p-0">
+        <Command>
+          <CommandInput placeholder={searchPlaceholder ?? 'Pesquisar…'} />
+          <CommandList id={listaId}>
+            <CommandEmpty>Nenhum resultado encontrado.</CommandEmpty>
+            <CommandGroup>
+              {options.map((opcao) => (
+                <CommandItem
+                  key={opcao.value}
+                  value={opcao.value}
+                  keywords={[opcao.label]}
+                  onSelect={() => {
+                    onValueChange(opcao.value)
+                    setAberto(false)
+                  }}
+                >
+                  <span className="min-w-0 break-words">{opcao.label}</span>
+                  {value === opcao.value ? <Check className="ml-auto shrink-0" /> : null}
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  )
 }
 
 interface RegistrosCardProps<
@@ -185,6 +265,22 @@ export function RegistrosCard<
   function renderCampo(coluna: RegistroColumn<TDraft>) {
     const valor = rascunho?.[coluna.key] ?? ''
 
+    if (coluna.type === 'select' && coluna.searchable) {
+      return (
+        <SelectPesquisavel
+          value={valor}
+          options={coluna.options}
+          label={coluna.label}
+          placeholder={coluna.placeholder}
+          searchPlaceholder={coluna.searchPlaceholder}
+          disabled={salvando}
+          onValueChange={(novoValor) =>
+            setRascunho((atual) => (atual ? { ...atual, [coluna.key]: novoValor } : atual))
+          }
+        />
+      )
+    }
+
     if (coluna.type === 'select') {
       return (
         <Select
@@ -197,11 +293,13 @@ export function RegistrosCard<
             <SelectValue placeholder={coluna.placeholder} />
           </SelectTrigger>
           <SelectContent>
-            {coluna.options?.map((opcao) => (
-              <SelectItem key={opcao.value} value={opcao.value}>
-                {opcao.label}
-              </SelectItem>
-            ))}
+            <SelectGroup>
+              {coluna.options?.map((opcao) => (
+                <SelectItem key={opcao.value} value={opcao.value}>
+                  {opcao.label}
+                </SelectItem>
+              ))}
+            </SelectGroup>
           </SelectContent>
         </Select>
       )

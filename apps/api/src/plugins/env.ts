@@ -3,6 +3,12 @@ export interface ApiConfig {
   host: string;
   port: number;
   frontendUrl: string;
+  // URL pública do front, pra montar links em coisas enviadas PRA FORA do
+  // navegador (hoje: e-mail de confirmação de férias) — deliberadamente
+  // separada de `frontendUrl`, que também é usada pro CORS e pro redirect do
+  // login Microsoft e por isso não pode virar a URL de produção sem quebrar
+  // o dev local. Se mudar o domínio de produção um dia, só troca APP_URL.
+  appUrl: string;
   // Quando false, a autenticação é ignorada (modo desenvolvimento).
   authEnabled: boolean;
   jwt: {
@@ -63,6 +69,18 @@ export interface ApiConfig {
     geminiApiKey: string;
     geminiModel: string;
   };
+  // E-mail de saída (SMTP corporativo) — ver lib/email.ts. Mesmo portão
+  // `enabled` do mssql/ldap: sem config, o recurso fica desligado (loga e
+  // engole) em vez de quebrar o boot ou a ação que o disparou.
+  smtp: {
+    enabled: boolean;
+    host: string;
+    port: number;
+    user: string;
+    // Lida de PASSWORD_EMAIL (nome já usado no .env), não SMTP_PASSWORD.
+    password: string;
+    from: string;
+  };
 }
 
 function readEnv(name: string, fallback = "") {
@@ -101,6 +119,7 @@ export function getApiConfig(): ApiConfig {
     host: readEnv("HOST", "0.0.0.0"),
     port: Number(readEnv("PORT", "3000")),
     frontendUrl: readEnv("FRONTEND_URL", "http://localhost:5173"),
+    appUrl: readEnv("APP_URL", readEnv("FRONTEND_URL", "http://localhost:5173")),
     authEnabled: readBooleanEnv("AUTH_ENABLED", true),
     jwt: {
       secret: requireEnv("JWT_SECRET"),
@@ -159,6 +178,14 @@ export function getApiConfig(): ApiConfig {
       // no código — conferir nomes/preços atuais em ai.google.dev antes de
       // trocar, os nomes de modelo mudam com frequência.
       geminiModel: readEnv("GEMINI_MODEL", "gemini-2.5-flash-lite")
+    },
+    smtp: {
+      enabled: readBooleanEnv("SMTP_ENABLED", false),
+      host: readEnv("SMTP_HOST", "localhost"),
+      port: Number(readEnv("SMTP_PORT", "587")),
+      user: readEnv("SMTP_USER"),
+      password: readEnv("PASSWORD_EMAIL"),
+      from: readEnv("SMTP_FROM")
     }
   };
 }

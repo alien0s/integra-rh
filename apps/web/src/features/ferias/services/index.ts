@@ -7,3 +7,4 @@ export type {
 export { feriadosService } from './feriadosService'
 export type { ResultadoImportacao } from './feriadosService'
 export { exportarMapaFeriasPdf } from './mapaFeriasExport'
+export { fluxoAprovadoresService } from './fluxoAprovadoresService'

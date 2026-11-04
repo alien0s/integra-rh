@@ -3,11 +3,11 @@ import type { FastifyInstance } from "fastify";
 import {
   aceitarAjusteSolicitacao,
   aprovarSolicitacao,
+  aprovarRhSolicitacao,
   atualizarExcecaoFerias,
   cancelarSolicitacao,
   confirmarSolicitacao,
   criarSolicitacao,
-  ehGestorDaSolicitacao,
   excluirSolicitacao,
   getResumoFerias,
   getSolicitacaoParaNotificar,
@@ -31,13 +31,25 @@ import {
   type SolicitacaoFeriasDTO,
   type VisaoGeralFeriasDTO,
 } from "../lib/ferias.js";
+import { ehEtapaDecisao, podeDecidirEtapa } from "../lib/feriasFluxo.js";
+import {
+  atualizarFluxoAprovador,
+  criarFluxoAprovador,
+  excluirFluxoAprovador,
+  FluxoAprovadorInvalidoError,
+  listFluxoAprovadores,
+  type FluxoAprovador,
+  type FluxoAprovadorInput,
+} from "../lib/fluxoAprovadores.js";
 import { rodaComoUsuario } from "../lib/database.js";
+import { enviarEmail } from "../lib/email.js";
 import { emitirParaPapeis, emitirParaUsuario } from "../lib/notificacoes.js";
 import {
   bloquearColaborador,
-  exigirAdminDuranteBeta,
+  exigirAcessoBeta,
   exigirPapeis,
 } from "../plugins/auth.js";
+import { getApiConfig } from "../plugins/env.js";
 import type { ApiListResponse, ApiResponse } from "../types/api.js";
 
 /**
@@ -49,6 +61,19 @@ import type { ApiListResponse, ApiResponse } from "../types/api.js";
  * lá — então ficam de fora, sem essa transação.
  */
 
+/**
+ * Selo de destaque do e-mail de confirmação de férias: ícone (mesmo path do
+ * "Palmtree" do lucide-react usado na sidebar/cards de férias) + título, em
+ * verde — ver `destaqueHtml` em `enviarEmail` (lib/email.ts), que já cuida do
+ * cabeçalho padrão por cima disso.
+ */
+const SVG_COQUEIRO = `<svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#16a34a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg"><path d="M13 8c0-2.76-2.46-5-5.5-5S2 5.24 2 8h2l1-1 1 1h4"/><path d="M13 7.14A5.82 5.82 0 0 1 16.5 6c3.04 0 5.5 2.24 5.5 5h-3l-1-1-1 1h-3"/><path d="M5.89 9.71c-2.15 2.15-2.3 5.47-.35 7.43l4.24-4.25.7-.7.71-.71 2.12-2.12c-1.95-1.96-5.27-1.8-7.42.35"/><path d="M11 15.5c.5 2.5-.17 4.5-1 6.5h4c2-5.5-.5-12-1-14"/></svg>`;
+const DESTAQUE_FERIAS_CONFIRMADAS_HTML = `
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:20px;">
+  <tr><td align="center" style="padding-bottom:10px;">${SVG_COQUEIRO}</td></tr>
+  <tr><td align="center" style="font-family:Arial,Helvetica,sans-serif;font-size:16px;font-weight:bold;color:#16a34a;">Férias confirmadas</td></tr>
+</table>`;
+
 /** Papéis que podem registrar férias/folga manualmente (histórico/retroativo). */
 const PAPEIS_QUE_PODEM_REGISTRAR_FERIAS_MANUAL = new Set([
   "ADMIN",
@@ -56,8 +81,6 @@ const PAPEIS_QUE_PODEM_REGISTRAR_FERIAS_MANUAL = new Set([
   "COORDENADOR DP",
 ]);
 
-const PAPEL_COORD_DP = "COORDENADOR DP";
-const PAPEL_RH = "RH";
 
 /** "Primeiro Último" a partir do nome completo (ex.: "Enos Cardoso de Franca" -> "Enos Franca"). */
 function primeiroEUltimoNome(nome: string): string {
@@ -67,35 +90,16 @@ function primeiroEUltimoNome(nome: string): string {
 }
 
 /**
- * Quem confirma (2ª etapa) a solicitação, conforme o PAPEL do solicitante:
- *   - solicitante é COORDENADOR DP → confirma o RH (ele está acima do coord.);
- *   - qualquer outro → confirma o COORDENADOR DP.
- */
-function papeisQueConfirmam(solicitantePapel: string | null): string[] {
-  return solicitantePapel === PAPEL_COORD_DP ? [PAPEL_RH] : [PAPEL_COORD_DP];
-}
-
-/** O usuário é o confirmador correto para este solicitante? (ADMIN/dev passam.) */
-function ehConfirmadorCorreto(
-  papelUsuario: string | undefined,
-  solicitantePapel: string | null,
-): boolean {
-  if (papelUsuario === undefined || papelUsuario === "ADMIN") return true;
-  return papeisQueConfirmam(solicitantePapel).includes(papelUsuario);
-}
-
-/**
- * Rotas de Férias/Folga. Fluxo de aprovação em duas etapas:
- *   criar → notifica o GESTOR do setor (acionável). Sem gestor → vai ao confirmador.
- *   gestor aprova → notifica o confirmador (COORD. DP; ou RH se o solicitante é
- *     COORD. DP) + o colaborador (informativa).
- *   confirmador confirma → notifica o colaborador. Recusa/cancelamento → notifica.
+ * Fluxo geral: chefia → RH → Assistente; solicitante RH: chefia → Assistente.
+ * Coord. DP acompanha tudo e decide a 1ª etapa somente de suas subordinadas DP.
+ * Sem gestor, ou sendo o próprio solicitante, o pedido começa na fila do RH.
  */
 export async function feriasRoutes(app: FastifyInstance) {
-  // Lançamento beta (ver exigirAdminDuranteBeta): só ADMIN por enquanto,
+  // Lançamento beta (ver exigirAcessoBeta): ADMIN e quem foi liberado
+  // antecipadamente pro módulo "ferias" (configurável na tela Tabelas),
   // espelhando o bloqueio de navegação do front. Roda em TODAS as rotas
   // deste arquivo (hook de plugin, depois de app.authenticate).
-  app.addHook("preHandler", exigirAdminDuranteBeta);
+  app.addHook("preHandler", exigirAcessoBeta("ferias"));
 
   /* ── Leitura ─────────────────────────────────────────────────────────── */
 
@@ -112,7 +116,9 @@ export async function feriasRoutes(app: FastifyInstance) {
         // GESTOR só vê a própria equipe; DP/RH/ADMIN veem todas.
         const gestorId =
           request.user.papelCodigo === "GESTOR" ? request.user.id : undefined;
-        const solicitacoes = await listSolicitacoes(gestorId);
+        const solicitacoes = await listSolicitacoes(
+          gestorId, request.user.papelCodigo === "COORDENADOR DP",
+        );
         return { data: solicitacoes, total: solicitacoes.length };
       });
     },
@@ -169,7 +175,7 @@ export async function feriasRoutes(app: FastifyInstance) {
   }>(
     "/ferias/geral",
     {
-      onRequest: [app.authenticate, exigirPapeis("DP", "COORDENADOR DP", "RH")],
+      onRequest: [app.authenticate, exigirPapeis("DP", "COORDENADOR DP", "RH", "ASSISTENTE")],
       schema: {
         tags: ["Férias"],
         summary: "Visão geral (DP/RH): quem entra e quem precisa tirar férias",
@@ -304,11 +310,11 @@ export async function feriasRoutes(app: FastifyInstance) {
             requerAcao: true,
           });
         } else {
-          // Sem gestor no setor (fallback): já vai ao confirmador (COORD. DP, ou
-          // RH se o próprio solicitante for COORD. DP).
-          await emitirParaPapeis(papeisQueConfirmam(solicitacao.solicitantePapel ?? null), {
+          // Sem chefia: RH solicitante segue direto ao Assistente, demais ao RH.
+          const aguardaAssistente = statusInicial === "APROVADO_RH";
+          await emitirParaPapeis(aguardaAssistente ? ["ASSISTENTE"] : ["RH"], {
             atorId: request.user.id,
-            tipo: `${request.body.tipo}_AGUARDA_DP`,
+            tipo: `${request.body.tipo}_${aguardaAssistente ? "AGUARDA_ASSISTENTE" : "AGUARDA_RH"}`,
             acao: verbo,
             detalhe: solicitacao.periodo,
             referenciaTabela: "ferias_solicitacoes",
@@ -375,15 +381,15 @@ export async function feriasRoutes(app: FastifyInstance) {
     },
   );
 
-  // 1ª etapa — GESTOR do setor aprova (PENDENTE → APROVADO_GESTOR).
+  // Aprovação do gestor (1ª) ou do RH (2ª), conforme o estado atual.
   app.patch<{
     Params: { id: string };
     Reply: ApiResponse<SolicitacaoFeriasDTO> | { message: string };
   }>(
     "/ferias/:id/aprovar",
     {
-      onRequest: [app.authenticate, exigirPapeis("GESTOR")],
-      schema: { tags: ["Férias"], summary: "Gestor aprova (1ª etapa)" },
+      onRequest: [app.authenticate, exigirPapeis("GESTOR", "COORDENADOR DP", "RH")],
+      schema: { tags: ["Férias"], summary: "Gestor ou RH aprova sua etapa atual" },
     },
     async (request, reply) => {
       return rodaComoUsuario(request.user, async () => {
@@ -397,17 +403,27 @@ export async function feriasRoutes(app: FastifyInstance) {
             .code(403)
             .send({ message: "Você não pode aprovar a sua própria solicitação." });
         }
-        // GESTOR só aprova solicitações do PRÓPRIO setor; ADMIN passa direto.
+        const ehResponsavelLocal = info.responsavelPrimeiraEtapaId === request.user.id;
         if (
-          request.user.papelCodigo === "GESTOR" &&
-          !(await ehGestorDaSolicitacao(request.params.id, request.user.id))
+          (info.status !== "PENDENTE" && info.status !== "APROVADO_GESTOR") ||
+          !podeDecidirEtapa(request.user.papelCodigo, info.status, ehResponsavelLocal)
+        ) {
+          return reply.code(403).send({ message: "Você não pode aprovar esta etapa da solicitação." });
+        }
+        // Chefia local só decide os pedidos sob sua responsabilidade; ADMIN passa.
+        if (
+          (request.user.papelCodigo === "GESTOR" || request.user.papelCodigo === "COORDENADOR DP") &&
+          !ehResponsavelLocal
         ) {
           return reply
             .code(403)
-            .send({ message: "Você não é o gestor do setor desta solicitação." });
+            .send({ message: "Você não é responsável pela primeira etapa desta solicitação." });
         }
 
-        const dto = await aprovarSolicitacao(request.params.id, request.user.id);
+        const aprovacaoRh = info.status === "APROVADO_GESTOR";
+        const dto = aprovacaoRh
+          ? await aprovarRhSolicitacao(request.params.id, request.user.id)
+          : await aprovarSolicitacao(request.params.id, request.user.id);
         if (!dto) {
           return reply
             .code(404)
@@ -415,11 +431,16 @@ export async function feriasRoutes(app: FastifyInstance) {
         }
 
         {
+          const aguardaAssistente = dto.status === "AGUARDANDO_ASSISTENTE";
           // Encaminha ao confirmador correto (acionável) e avisa o colaborador.
-          await emitirParaPapeis(papeisQueConfirmam(info.solicitantePapel), {
+          // Usa info.tipo (FERIAS ou FOLGA) — sem isso os dois textos ficam
+          // sempre "férias" mesmo quando a solicitação original era folga, e o
+          // card de "Atividades recentes" não dá pra saber do que se trata.
+          const substantivo = info.tipo === "FOLGA" ? "folga" : "férias";
+          await emitirParaPapeis(aguardaAssistente ? ["ASSISTENTE"] : ["RH"], {
             atorId: request.user.id,
-            tipo: "FERIAS_AGUARDA_DP",
-            acao: `aprovou férias de ${primeiroEUltimoNome(info.funcionarioNome)}`,
+            tipo: `${info.tipo}_${aguardaAssistente ? "AGUARDA_ASSISTENTE" : "AGUARDA_RH"}`,
+            acao: `aprovou ${substantivo} de ${primeiroEUltimoNome(info.funcionarioNome)}`,
             detalhe: info.periodo,
             referenciaTabela: "ferias_solicitacoes",
             referenciaId: request.params.id,
@@ -427,8 +448,8 @@ export async function feriasRoutes(app: FastifyInstance) {
           });
           await emitirParaUsuario(info.userId, {
             atorId: request.user.id,
-            tipo: "FERIAS_APROVADA_GESTOR",
-            acao: "aprovou sua solicitação (aguardando o DP)",
+            tipo: `${info.tipo}_${aprovacaoRh ? "APROVADA_RH" : "APROVADA_GESTOR"}`,
+            acao: `aprovou sua solicitação de ${substantivo} (aguardando ${aguardaAssistente ? "Tesoureiro Assistente" : "Recursos Humanos"})`,
             detalhe: info.periodo,
             referenciaTabela: "ferias_solicitacoes",
             referenciaId: request.params.id,
@@ -440,15 +461,15 @@ export async function feriasRoutes(app: FastifyInstance) {
     },
   );
 
-  // 2ª etapa — DP confirma (APROVADO_GESTOR → APROVADO).
+  // 3ª etapa — Tesoureiro Assistente confirma (APROVADO_RH → APROVADO).
   app.patch<{
     Params: { id: string };
     Reply: ApiResponse<SolicitacaoFeriasDTO> | { message: string };
   }>(
     "/ferias/:id/confirmar",
     {
-      onRequest: [app.authenticate, exigirPapeis("COORDENADOR DP", "RH")],
-      schema: { tags: ["Férias"], summary: "Confirma a solicitação (2ª etapa)" },
+      onRequest: [app.authenticate, exigirPapeis("ASSISTENTE")],
+      schema: { tags: ["Férias"], summary: "Tesoureiro Assistente confirma a solicitação (3ª etapa)" },
     },
     async (request, reply) => {
       return rodaComoUsuario(request.user, async () => {
@@ -461,18 +482,11 @@ export async function feriasRoutes(app: FastifyInstance) {
             .code(403)
             .send({ message: "Você não pode confirmar a sua própria solicitação." });
         }
-        // COORD. DP confirma as dos demais; RH confirma as do COORD. DP.
-        if (!ehConfirmadorCorreto(request.user.papelCodigo, info.solicitantePapel)) {
-          return reply
-            .code(403)
-            .send({ message: "Esta solicitação é confirmada por outro papel." });
-        }
-
         const dto = await confirmarSolicitacao(request.params.id, request.user.id);
         if (!dto) {
           return reply
             .code(404)
-            .send({ message: "Solicitação não encontrada ou não está aguardando o DP." });
+            .send({ message: "Solicitação não encontrada ou não está aguardando o Tesoureiro Assistente." });
         }
 
         {
@@ -484,6 +498,12 @@ export async function feriasRoutes(app: FastifyInstance) {
             referenciaTabela: "ferias_solicitacoes",
             referenciaId: request.params.id,
           });
+          await enviarEmail({
+            para: info.funcionarioEmail,
+            assunto: "Suas férias foram confirmadas",
+            texto: `Olá ${info.funcionarioNome},\n\nSuas férias foram confirmadas pelo Tesoureiro Assistente para o período ${info.periodo} (${info.dias} dia(s)).\n\nVeja os detalhes em ${getApiConfig().appUrl}/ferias.`,
+            destaqueHtml: DESTAQUE_FERIAS_CONFIRMADAS_HTML,
+          });
         }
 
         return { data: dto };
@@ -491,7 +511,7 @@ export async function feriasRoutes(app: FastifyInstance) {
     },
   );
 
-  // 2ª etapa (alternativa à confirmação) — DP devolve uma sugestão de nova
+  // 2ª etapa (alternativa à confirmação) — RH devolve uma sugestão de nova
   // data (APROVADO_GESTOR → AJUSTE_SUGERIDO). Notificação só informativa: o
   // colaborador aceita direto na tela de Férias (aba Pessoal), não pelo
   // cartão de notificação (que só sabe agir em Aprovar/Recusar de férias).
@@ -502,10 +522,10 @@ export async function feriasRoutes(app: FastifyInstance) {
   }>(
     "/ferias/:id/sugerir-ajuste",
     {
-      onRequest: [app.authenticate, exigirPapeis("COORDENADOR DP", "RH")],
+      onRequest: [app.authenticate, exigirPapeis("RH")],
       schema: {
         tags: ["Férias"],
-        summary: "DP sugere um novo início pro período, em vez de confirmar (2ª etapa)",
+        summary: "RH sugere um novo início pro período, em vez de aprovar (2ª etapa)",
         body: {
           type: "object",
           required: ["dataInicioSugerida", "motivo"],
@@ -528,12 +548,6 @@ export async function feriasRoutes(app: FastifyInstance) {
             .code(403)
             .send({ message: "Você não pode sugerir um ajuste na sua própria solicitação." });
         }
-        if (!ehConfirmadorCorreto(request.user.papelCodigo, info.solicitantePapel)) {
-          return reply
-            .code(403)
-            .send({ message: "Esta solicitação é confirmada por outro papel." });
-        }
-
         let dto;
         try {
           dto = await sugerirAjusteSolicitacao(
@@ -551,7 +565,7 @@ export async function feriasRoutes(app: FastifyInstance) {
         if (!dto) {
           return reply
             .code(404)
-            .send({ message: "Solicitação não encontrada ou não está aguardando o DP." });
+            .send({ message: "Solicitação não encontrada ou não está aguardando o RH." });
         }
 
         await emitirParaUsuario(info.userId, {
@@ -568,8 +582,8 @@ export async function feriasRoutes(app: FastifyInstance) {
     },
   );
 
-  // O colaborador aceita o ajuste sugerido pelo DP: aplica a nova data e
-  // reinicia o fluxo (gestor aprova de novo, DP confirma de novo). Não há
+  // O colaborador aceita o ajuste sugerido pelo RH: aplica a nova data e
+  // reinicia o fluxo (gestor aprova de novo, RH confirma de novo). Não há
   // "recusar o ajuste" — pra isso, cancela a solicitação inteira.
   app.patch<{
     Params: { id: string };
@@ -580,7 +594,7 @@ export async function feriasRoutes(app: FastifyInstance) {
       onRequest: [app.authenticate],
       schema: {
         tags: ["Férias"],
-        summary: "Colaborador aceita o ajuste de data sugerido pelo DP",
+        summary: "Colaborador aceita o ajuste de data sugerido pelo RH",
       },
     },
     async (request, reply) => {
@@ -596,7 +610,7 @@ export async function feriasRoutes(app: FastifyInstance) {
         if (statusInicial === "PENDENTE" && gestorId) {
           await emitirParaUsuario(gestorId, {
             atorId: request.user.id,
-            tipo: "FERIAS_SOLICITADA",
+            tipo: `${solicitacao.tipo}_SOLICITADA`,
             acao: "aceitou o ajuste de data e aguarda aprovação",
             detalhe: solicitacao.periodo,
             referenciaTabela: "ferias_solicitacoes",
@@ -604,9 +618,10 @@ export async function feriasRoutes(app: FastifyInstance) {
             requerAcao: true,
           });
         } else {
-          await emitirParaPapeis(papeisQueConfirmam(solicitacao.solicitantePapel ?? null), {
+          const aguardaAssistente = statusInicial === "APROVADO_RH";
+          await emitirParaPapeis(aguardaAssistente ? ["ASSISTENTE"] : ["RH"], {
             atorId: request.user.id,
-            tipo: "FERIAS_AGUARDA_DP",
+            tipo: `${solicitacao.tipo}_${aguardaAssistente ? "AGUARDA_ASSISTENTE" : "AGUARDA_RH"}`,
             acao: "aceitou o ajuste de data e aguarda confirmação",
             detalhe: solicitacao.periodo,
             referenciaTabela: "ferias_solicitacoes",
@@ -620,7 +635,7 @@ export async function feriasRoutes(app: FastifyInstance) {
     },
   );
 
-  // Recusar (gestor em PENDENTE, ou DP em APROVADO_GESTOR) com justificativa.
+  // Recusar na etapa atual: gestor, RH ou Tesoureiro Assistente, com justificativa.
   app.patch<{
     Params: { id: string };
     Body: { motivo: string };
@@ -630,7 +645,7 @@ export async function feriasRoutes(app: FastifyInstance) {
     {
       onRequest: [
         app.authenticate,
-        exigirPapeis("GESTOR", "COORDENADOR DP", "RH"),
+        exigirPapeis("GESTOR", "COORDENADOR DP", "RH", "ASSISTENTE"),
       ],
       schema: {
         tags: ["Férias"],
@@ -655,29 +670,26 @@ export async function feriasRoutes(app: FastifyInstance) {
             .send({ message: "Você não pode recusar a sua própria solicitação." });
         }
         const papel = request.user.papelCodigo;
-        // GESTOR só recusa do próprio setor (1ª etapa); o confirmador só recusa
-        // as solicitações que confirmaria (2ª etapa). ADMIN passa.
-        if (
-          papel === "GESTOR" &&
-          !(await ehGestorDaSolicitacao(request.params.id, request.user.id))
-        ) {
-          return reply
-            .code(403)
-            .send({ message: "Você não é o gestor do setor desta solicitação." });
+        const ehResponsavelLocal = info.responsavelPrimeiraEtapaId === request.user.id;
+        if (!ehEtapaDecisao(info.status) || !podeDecidirEtapa(papel, info.status, ehResponsavelLocal)) {
+          return reply.code(403).send({ message: "Você não pode recusar esta etapa da solicitação." });
         }
         if (
-          (papel === "COORDENADOR DP" || papel === "RH") &&
-          !ehConfirmadorCorreto(papel, info.solicitantePapel)
+          (papel === "GESTOR" || papel === "COORDENADOR DP") &&
+          !ehResponsavelLocal
         ) {
-          return reply
-            .code(403)
-            .send({ message: "Esta solicitação é confirmada por outro papel." });
+          return reply.code(403).send({ message: "Você não é responsável pela primeira etapa desta solicitação." });
+        }
+        const motivo = request.body.motivo.trim();
+        if (!motivo) {
+          return reply.code(400).send({ message: "Informe o motivo da recusa." });
         }
 
         const dto = await recusarSolicitacao(
           request.params.id,
           request.user.id,
-          request.body.motivo,
+          motivo,
+          info.status,
         );
         if (!dto) {
           return reply
@@ -723,9 +735,9 @@ export async function feriasRoutes(app: FastifyInstance) {
     async (request, reply) => {
       return rodaComoUsuario(request.user, async () => {
         const papel = request.user.papelCodigo;
-        // Cancelar uma já APROVADA é do confirmador (COORD. DP / RH) ou ADMIN.
+        // RH/Tesoureiro Assistente/ADMIN podem cancelar após a confirmação.
         const ehConfirmador =
-          papel === "COORDENADOR DP" ||
+          papel === "ASSISTENTE" ||
           papel === "RH" ||
           papel === "ADMIN" ||
           papel === undefined;
@@ -751,7 +763,7 @@ export async function feriasRoutes(app: FastifyInstance) {
         if (info) {
           const donoCancelou = info.userId === request.user.id;
           if (donoCancelou) {
-            await emitirParaPapeis(papeisQueConfirmam(info.solicitantePapel), {
+            await emitirParaPapeis(["RH", "ASSISTENTE"], {
               atorId: request.user.id,
               tipo: "FERIAS_CANCELADA",
               acao: "cancelou a solicitação de férias",
@@ -777,7 +789,8 @@ export async function feriasRoutes(app: FastifyInstance) {
   );
 
   // Excluir: só o próprio dono, e só depois de CANCELADA (aba Pessoal —
-  // limpar o histórico de algo que já foi cancelado).
+  // limpar o histórico de algo que já foi cancelado). ADMIN pula as duas
+  // travas — ver excluirSolicitacao em lib/ferias.ts.
   app.delete<{ Params: { id: string }; Reply: { message: string } | undefined }>(
     "/ferias/:id",
     {
@@ -786,7 +799,11 @@ export async function feriasRoutes(app: FastifyInstance) {
     },
     async (request, reply) => {
       return rodaComoUsuario(request.user, async () => {
-        const resultado = await excluirSolicitacao(request.params.id, request.user.id);
+        const resultado = await excluirSolicitacao(
+          request.params.id,
+          request.user.id,
+          request.user.papelCodigo === "ADMIN",
+        );
 
         if (!resultado.ok) {
           if (resultado.motivo === "NAO_ENCONTRADA") {
@@ -804,6 +821,137 @@ export async function feriasRoutes(app: FastifyInstance) {
 
         return reply.code(204).send(undefined);
       });
+    },
+  );
+
+  /* ── Fluxo de aprovação (configuração de exceções, ADMIN) ──────────────
+   * Tela "Fluxo de aprovação" (FluxoAprovacaoAdmin.tsx). A tabela
+   * `fluxo_aprovadores` é module-agnostic (ver 037_fluxo_aprovadores.sql),
+   * mas por enquanto só o módulo de Férias tem tela — por isso `modulo`
+   * fica fixo aqui, sem expor um admin genérico multi-módulo que ninguém
+   * pediu ainda. AVISO: esta configuração ainda não é lida pelo fluxo real
+   * de decisão (feriasFluxo.ts) — é só armazenamento + tela por enquanto. */
+
+  const MODULO_FLUXO_FERIAS = "FERIAS";
+
+  app.get<{ Reply: ApiListResponse<FluxoAprovador> }>(
+    "/ferias/fluxo-aprovadores",
+    {
+      onRequest: [app.authenticate, exigirPapeis()],
+      schema: {
+        tags: ["Férias — Fluxo de aprovação"],
+        summary: "Lista as exceções configuradas ao fluxo padrão de aprovação de férias",
+      },
+    },
+    async () => {
+      const fluxo = await listFluxoAprovadores(MODULO_FLUXO_FERIAS);
+      return { data: fluxo, total: fluxo.length };
+    },
+  );
+
+  app.post<{
+    Body: FluxoAprovadorInput;
+    Reply: ApiResponse<FluxoAprovador> | { message: string };
+  }>(
+    "/ferias/fluxo-aprovadores",
+    {
+      onRequest: [app.authenticate, exigirPapeis()],
+      schema: {
+        tags: ["Férias — Fluxo de aprovação"],
+        summary: "Cria uma exceção ao fluxo padrão de aprovação de férias",
+        body: {
+          type: "object",
+          required: ["etapa"],
+          properties: {
+            etapa: { type: "string", minLength: 1 },
+            grupo: { type: ["string", "null"] },
+            userId: { type: ["string", "null"] },
+            papelId: { type: ["string", "null"] },
+            setorIds: { type: ["array", "null"], items: { type: "string" } },
+          },
+          additionalProperties: false,
+        },
+      },
+    },
+    async (request, reply) => {
+      try {
+        const fluxo = await criarFluxoAprovador(MODULO_FLUXO_FERIAS, request.body);
+        return reply.code(201).send({ data: fluxo });
+      } catch (error) {
+        if (error instanceof FluxoAprovadorInvalidoError) {
+          return reply.code(400).send({ message: error.message });
+        }
+        if ((error as { code?: string }).code === "23505") {
+          return reply
+            .code(409)
+            .send({ message: "Já existe uma exceção cadastrada para esse escopo nessa etapa." });
+        }
+        throw error;
+      }
+    },
+  );
+
+  app.patch<{
+    Params: { id: string };
+    Body: FluxoAprovadorInput;
+    Reply: ApiResponse<FluxoAprovador> | { message: string };
+  }>(
+    "/ferias/fluxo-aprovadores/:id",
+    {
+      onRequest: [app.authenticate, exigirPapeis()],
+      schema: {
+        tags: ["Férias — Fluxo de aprovação"],
+        summary: "Atualiza uma exceção ao fluxo padrão de aprovação de férias",
+        body: {
+          type: "object",
+          required: ["etapa"],
+          properties: {
+            etapa: { type: "string", minLength: 1 },
+            grupo: { type: ["string", "null"] },
+            userId: { type: ["string", "null"] },
+            papelId: { type: ["string", "null"] },
+            setorIds: { type: ["array", "null"], items: { type: "string" } },
+          },
+          additionalProperties: false,
+        },
+      },
+    },
+    async (request, reply) => {
+      try {
+        const fluxo = await atualizarFluxoAprovador(request.params.id, request.body);
+        if (!fluxo) {
+          return reply.code(404).send({ message: "Exceção não encontrada." });
+        }
+        return { data: fluxo };
+      } catch (error) {
+        if (error instanceof FluxoAprovadorInvalidoError) {
+          return reply.code(400).send({ message: error.message });
+        }
+        if ((error as { code?: string }).code === "23505") {
+          return reply
+            .code(409)
+            .send({ message: "Já existe uma exceção cadastrada para esse escopo nessa etapa." });
+        }
+        throw error;
+      }
+    },
+  );
+
+  app.delete<{ Params: { id: string }; Reply: { message: string } | undefined }>(
+    "/ferias/fluxo-aprovadores/:id",
+    {
+      onRequest: [app.authenticate, exigirPapeis()],
+      schema: {
+        tags: ["Férias — Fluxo de aprovação"],
+        summary: "Exclui uma exceção ao fluxo padrão de aprovação de férias",
+      },
+    },
+    async (request, reply) => {
+      const excluido = await excluirFluxoAprovador(request.params.id);
+      if (!excluido) {
+        return reply.code(404).send({ message: "Exceção não encontrada." });
+      }
+      return reply.code(204).send(undefined);
     },
   );
 }

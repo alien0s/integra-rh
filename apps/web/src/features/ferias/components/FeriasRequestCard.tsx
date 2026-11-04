@@ -60,10 +60,14 @@ const STATUS_CONFIG: Record<
     className:
       'bg-amber-100 text-amber-700 hover:bg-amber-100 dark:bg-amber-900/30 dark:text-amber-400',
   },
-  AGUARDANDO_DP: {
-    label: 'Aguardando DP',
+  AGUARDANDO_RH: {
+    label: 'Aguard. RH',
     className:
       'bg-blue-100 text-blue-700 hover:bg-blue-100 dark:bg-blue-900/30 dark:text-blue-400',
+  },
+  AGUARDANDO_ASSISTENTE: {
+    label: 'Aguardando Tesoureiro Assistente',
+    className: 'bg-muted text-muted-foreground',
   },
   AJUSTE_SUGERIDO: {
     label: 'Ajuste sugerido',
@@ -87,21 +91,8 @@ const STATUS_CONFIG: Record<
   },
 }
 
-// Aprovar/recusar (1ª etapa) é só do GESTOR. Confirmar (2ª etapa) é do
-// COORDENADOR DP — exceto quando o próprio solicitante é COORDENADOR DP, aí quem
-// confirma é o RH. O papel "DP" só visualiza (não age). Papéis do catálogo
-// (004_roles.sql). ADMIN não vê os botões (o backend permite via API).
-const PAPEL_COORD_DP = 'COORDENADOR DP'
-const PAPEL_RH = 'RH'
-
-/** O papel logado é o confirmador correto para este solicitante? */
-function ehConfirmador(papel: string | undefined, solicitantePapel?: string): boolean {
-  if (papel === undefined) return false
-  return solicitantePapel === PAPEL_COORD_DP
-    ? papel === PAPEL_RH
-    : papel === PAPEL_COORD_DP
-}
-
+// Cada papel decide sua etapa; Coord. DP só age como chefia de suas subordinadas DP.
+// ADMIN mantém intervenção pela API, sem botões de aprovação na interface.
 /** Estado de uma etapa de aprovação. */
 type EstadoEtapa = 'feito' | 'pendente' | 'dispensado'
 
@@ -109,7 +100,7 @@ type EstadoEtapa = 'feito' | 'pendente' | 'dispensado'
  * Uma etapa do progresso de aprovação.
  *   - feito: aprovado por alguém (check verde + nome/data).
  *   - pendente: ainda aguardando (relógio).
- *   - dispensado: etapa pulada (ex.: setor sem gestor → foi direto ao DP).
+ *   - dispensado: etapa pulada (ex.: setor sem gestor → foi direto ao RH).
  */
 function EtapaProgresso({
   rotulo,
@@ -153,7 +144,7 @@ function EtapaProgresso({
 }
 
 /**
- * Card de solicitação de férias com progresso de aprovação (gestor → DP) e as
+ * Card de solicitação de férias com progresso de aprovação (gestor → RH → Tesoureiro Assistente) e as
  * ações do usuário logado conforme o papel e o status.
  */
 export function FeriasRequestCard({
@@ -171,7 +162,6 @@ export function FeriasRequestCard({
     id,
     tipo,
     userId,
-    solicitantePapel,
     funcionarioNome,
     cicloFerias,
     avatarUrl,
@@ -184,9 +174,10 @@ export function FeriasRequestCard({
     diasRestantes,
     diasTotais,
     status,
-    origem,
     aprovadoGestorNome,
     aprovadoGestorEm,
+    aprovadoRhNome,
+    aprovadoRhEm,
     aprovadoDpNome,
     decididoEm,
     motivoRejeicao,
@@ -227,33 +218,43 @@ export function FeriasRequestCard({
 
   // Ninguém decide sobre a própria solicitação (a de si mesmo é gerida na aba
   // Pessoal — cancelar). Some com as ações no card da Visão geral. Exceção:
-  // aceitar o ajuste do DP é sempre uma ação do próprio dono.
+  // aceitar o ajuste do RH é sempre uma ação do próprio dono.
   const ehProprio = usuarioLogadoId !== undefined && userId === usuarioLogadoId
 
   const podeAprovarGestor =
-    !ehProprio && status === 'PENDENTE' && papel === 'GESTOR'
-  const podeConfirmarDp =
-    !ehProprio && status === 'AGUARDANDO_DP' && ehConfirmador(papel, solicitantePapel)
-  // Alternativa à confirmação: em vez de confirmar direto, o DP devolve uma
-  // sugestão de nova data (mesma elegibilidade de podeConfirmarDp).
-  const podeSugerirAjuste = podeConfirmarDp
+    !ehProprio && status === 'PENDENTE' &&
+    (papel === 'GESTOR' || papel === 'COORDENADOR DP') &&
+    solicitacao.responsavelPrimeiraEtapaId === usuarioLogadoId
+  const podeAprovarRh =
+    !ehProprio && status === 'AGUARDANDO_RH' && papel === 'RH'
+  const podeConfirmarAssistente =
+    !ehProprio && status === 'AGUARDANDO_ASSISTENTE' && papel === 'ASSISTENTE'
+  const podeSugerirAjuste = podeAprovarRh
   const podeAceitarAjuste = ehProprio && status === 'AJUSTE_SUGERIDO'
-  const podeCancelarDp =
+  const podeCancelarGestao =
     !ehProprio &&
     status === 'APROVADA' &&
-    (papel === PAPEL_COORD_DP || papel === PAPEL_RH)
+    (papel === 'RH' || papel === 'ASSISTENTE')
   const temAcao =
-    podeAprovarGestor || podeConfirmarDp || podeCancelarDp || podeAceitarAjuste
+    podeAprovarGestor || podeAprovarRh || podeConfirmarAssistente || podeCancelarGestao || podeAceitarAjuste
 
   // Aprovado só quando há um gestor que aprovou. Se passou de PENDENTE sem
   // gestor (fallback/setor sem gestor), a etapa foi dispensada — nesse caso a
   // linha do Gestor nem aparece (ver JSX abaixo), em vez de mostrar um
   // placeholder "dispensada".
-  const estadoGestor: EstadoEtapa = aprovadoGestorNome
+  const estadoGestor: EstadoEtapa = aprovadoGestorEm
     ? 'feito'
-    : status === 'AGUARDANDO_DP' || status === 'APROVADA'
+    : status === 'AGUARDANDO_RH' || status === 'AGUARDANDO_ASSISTENTE' || status === 'APROVADA'
       ? 'dispensado'
       : 'pendente'
+
+  const estadoRh: EstadoEtapa = aprovadoRhEm
+    ? 'feito'
+    : solicitacao.etapaRhDispensada || solicitacao.origem === 'REGISTRO_MANUAL' || status === 'APROVADA'
+      ? 'dispensado'
+      : 'pendente'
+  const decisaoHistorica = solicitacao.origem === 'REGISTRO_MANUAL' ||
+    (status === 'APROVADA' && !aprovadoRhEm && !solicitacao.etapaRhDispensada)
 
   return (
     <Card className="shadow-none">
@@ -271,11 +272,6 @@ export function FeriasRequestCard({
               )}
               {tipo === 'FOLGA' ? 'Folga' : 'Férias'}
             </Badge>
-            {origem === 'REGISTRO_MANUAL' && (
-              <Badge variant="outline" className="text-[10px] font-normal text-muted-foreground">
-                Lançado manualmente
-              </Badge>
-            )}
           </div>
           <Popover>
             <PopoverTrigger asChild>
@@ -333,7 +329,7 @@ export function FeriasRequestCard({
           </div>
         </div>
 
-        {/* Progresso de aprovação (gestor → DP). Sem gestor no setor, a
+        {/* Progresso de aprovação (gestor → RH → Tesoureiro Assistente). Sem gestor no setor, a
             etapa foi dispensada — a linha nem aparece. */}
         {status !== 'CANCELADA' && (
           <div className="flex flex-col gap-1">
@@ -346,7 +342,14 @@ export function FeriasRequestCard({
               />
             )}
             <EtapaProgresso
-              rotulo="DP"
+              rotulo="Recursos Humanos"
+              nome={aprovadoRhNome}
+              em={aprovadoRhEm}
+              estado={estadoRh}
+              textoDispensado={solicitacao.etapaRhDispensada ? 'solicitante é do RH' : solicitacao.origem === 'REGISTRO_MANUAL' ? 'registro histórico' : 'fluxo anterior'}
+            />
+            <EtapaProgresso
+              rotulo={decisaoHistorica ? 'Decisão registrada' : 'Tesoureiro Assistente'}
               nome={aprovadoDpNome}
               em={decididoEm}
               estado={status === 'APROVADA' ? 'feito' : 'pendente'}
@@ -356,7 +359,7 @@ export function FeriasRequestCard({
 
         {status === 'AJUSTE_SUGERIDO' && (
           <p className="rounded-lg bg-orange-50 px-3 py-2 text-xs text-orange-700 dark:bg-orange-950/30 dark:text-orange-400">
-            <span className="font-medium">DP sugeriu ajuste:</span> de {periodo} para{' '}
+            <span className="font-medium">Recursos Humanos sugeriu ajuste:</span> de {periodo} para{' '}
             {periodoSugerido}.{motivoAjuste ? ` Motivo: ${motivoAjuste}.` : ''}
           </p>
         )}
@@ -364,6 +367,7 @@ export function FeriasRequestCard({
         {status === 'REJEITADA' && motivoRejeicao && (
           <p className="rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700 dark:bg-red-950/30 dark:text-red-400">
             <span className="font-medium">Motivo da recusa:</span> {motivoRejeicao}
+            {aprovadoDpNome ? ` · Recusado por ${aprovadoDpNome}${decididoEm ? ` em ${decididoEm}` : ''}.` : ''}
           </p>
         )}
         {status === 'CANCELADA' && (
@@ -376,8 +380,8 @@ export function FeriasRequestCard({
 
       {temAcao && (
         <CardFooter className="justify-end gap-2 pt-0">
-          {/* Rejeitar (gestor em PENDENTE, ou DP em AGUARDANDO_DP) */}
-          {(podeAprovarGestor || podeConfirmarDp) && (
+          {/* Rejeitar (gestor em PENDENTE, ou RH ou Assistente na sua etapa) */}
+          {(podeAprovarGestor || podeAprovarRh || podeConfirmarAssistente) && (
             <Dialog open={rejeicaoAberta} onOpenChange={setRejeicaoAberta}>
               <DialogTrigger asChild>
                 <Button
@@ -422,7 +426,7 @@ export function FeriasRequestCard({
             </Dialog>
           )}
 
-          {podeAprovarGestor && (
+          {(podeAprovarGestor || podeAprovarRh) && (
             <Button
               size="sm"
               onClick={() => onAprovar?.(id)}
@@ -431,7 +435,7 @@ export function FeriasRequestCard({
               Aprovar
             </Button>
           )}
-          {podeConfirmarDp && (
+          {podeConfirmarAssistente && (
             <Button
               size="sm"
               onClick={() => onConfirmar?.(id)}
@@ -441,7 +445,7 @@ export function FeriasRequestCard({
             </Button>
           )}
 
-          {/* Sugerir ajuste (alternativa à confirmação — DP devolve uma nova data) */}
+          {/* Sugerir ajuste (alternativa à aprovação — RH devolve uma nova data) */}
           {podeSugerirAjuste && (
             <SugerirAjusteDialog
               id={id}
@@ -465,8 +469,8 @@ export function FeriasRequestCard({
             </Button>
           )}
 
-          {/* Cancelar (DP, sobre uma aprovada) */}
-          {podeCancelarDp && (
+          {/* Cancelar (RH/Assistente, sobre uma aprovada) */}
+          {podeCancelarGestao && (
             <Dialog open={cancelamentoAberto} onOpenChange={setCancelamentoAberto}>
               <DialogTrigger asChild>
                 <Button variant="outline" size="sm">

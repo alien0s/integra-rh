@@ -1,7 +1,7 @@
 /**
- * Types do dashboard (Home). Eventos, férias e aniversariantes ainda são
- * estáticos (services/homeService.ts); comunicados já vêm da API real
- * (GET /comunicados/ativos).
+ * Types do dashboard (Home). Eventos ainda são estáticos (ver
+ * services/homeService.ts); comunicados, férias e aniversariantes já vêm da
+ * API real.
  */
 
 /** Um item do carrossel de eventos da empresa (foto + legenda). */
@@ -31,7 +31,7 @@ export interface ComunicadoItem {
  * (mesma ideia da obrigação recorrente OBRIGACAO_FERIAS_SOLICITAR no
  * back — ver lib/obrigacoes.ts); preenchido = tem férias aprovadas chegando.
  */
-export interface FeriasStatusMock {
+export interface FeriasStatus {
   diasParaFerias: number | null
   /** Período legível (ex.: "10 – 30 de novembro"). Só faz sentido quando diasParaFerias != null. */
   periodo?: string
@@ -41,8 +41,10 @@ export interface FeriasStatusMock {
 export interface Aniversariante {
   id: string
   nome: string
-  /** Data legível (ex.: "15 de outubro"). */
-  data: string
+  /** Dia do aniversário (1-31). */
+  dia: number
+  /** Mês do aniversário (1-12) — sempre o mês corrente. */
+  mes: number
   fotoUrl: string
   iniciais: string
 }
@@ -50,6 +52,6 @@ export interface Aniversariante {
 /** Payload completo do dashboard (o que services/homeService.ts devolve). */
 export interface DashboardData {
   comunicados: ComunicadoItem[]
-  ferias: FeriasStatusMock
+  ferias: FeriasStatus
   aniversariantes: Aniversariante[]
 }

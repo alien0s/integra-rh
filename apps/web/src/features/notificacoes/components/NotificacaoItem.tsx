@@ -7,6 +7,7 @@ import {
   Paperclip,
   Palmtree,
   Loader2,
+  RefreshCw,
   type LucideIcon,
 } from 'lucide-react'
 
@@ -54,6 +55,10 @@ const iconePorTipo: Record<NotificacaoCartaoIcone, LucideIcon> = {
   curso: GraduationCap,
   obrigacao: AlertTriangle,
   folga: Coffee,
+  // Telefone/estado civil mudou e precisa ser atualizado manualmente no APS
+  // também — é um aviso de sincronização pendente, não um anexo.
+  divergencia: RefreshCw,
+  ferias: Palmtree,
 }
 
 /** Uma linha de notificação dentro do drawer. */
@@ -87,8 +92,8 @@ export function NotificacaoItem({
       setAbrindoAnexo(false)
     }
   }
-  // Card do DP (2ª etapa) confirma; card do gestor aprova.
-  const rotuloAprovar = notificacao.tipo?.endsWith('_AGUARDA_DP')
+  // Tesoureiro Assistente confirma; gestor e RH aprovam.
+  const rotuloAprovar = notificacao.tipo?.endsWith('_AGUARDA_ASSISTENTE')
     ? 'Confirmar'
     : 'Aprovar'
 

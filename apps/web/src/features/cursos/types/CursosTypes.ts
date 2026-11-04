@@ -51,6 +51,9 @@ export interface NovaFormacaoInput {
   anexoUrl: string | null
 }
 
+/** Igual a NovaFormacaoInput, menos `anexoUrl` (o anexo tem endpoint próprio). */
+export type EditarFormacaoInput = Omit<NovaFormacaoInput, 'anexoUrl'>
+
 /* ── Cursos, workshops e certificações (tabela mesclada — `tipo` diferencia) ── */
 
 export type TipoCursoQualificacao = 'CERTIFICACAO' | 'CURSO' | 'WORKSHOP'
@@ -131,4 +134,26 @@ export interface QualificacoesDeUsuario {
   formacoes: FormacaoAcademica[]
   cursos: CursoQualificacao[]
   idiomas: Idioma[]
+}
+
+/* ── Fila de moderação (RH/DP/Admin) — QualificacoesPendentesDialog ── */
+
+/** Campos extras que só existem na fila de moderação (quem mandou e quando). */
+interface ItemModeracao {
+  funcionarioNome: string
+  fotoUrl: string
+  iniciais: string
+  /** ISO (`new Date(...)` direto) — a lista ordena pelo mais antigo primeiro. */
+  createdAt: string
+}
+
+export type FormacaoAcademicaModeracao = FormacaoAcademica & ItemModeracao
+export type CursoQualificacaoModeracao = CursoQualificacao & ItemModeracao
+export type IdiomaModeracao = Idioma & ItemModeracao
+
+/** Resposta de GET /qualificacoes/pendentes — tudo que está PENDENTE agora. */
+export interface QualificacoesPendentes {
+  formacoes: FormacaoAcademicaModeracao[]
+  cursos: CursoQualificacaoModeracao[]
+  idiomas: IdiomaModeracao[]
 }

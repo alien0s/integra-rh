@@ -1,8 +1,13 @@
-import { Pencil, UserShield } from 'lucide-react'
+import { Eye, EyeOff, Pencil, UserShield } from 'lucide-react'
 
 import { AvatarUploader } from '@/components/RH'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
 import type { Usuario } from '@/features/usuarios/types'
 
 /** Classes do badge de status por estado do usuário. */
@@ -15,6 +20,8 @@ interface UsuarioPerfilHeaderProps {
   usuario: Usuario
   /** Upload de nova foto (Blob recortado). */
   onUploadAvatar: (blob: Blob) => Promise<void> | void
+  /** Remove a foto atual. */
+  onRemoverAvatar: () => Promise<void> | void
   /** Abre o modal de edição. */
   onEditar: () => void
   /**
@@ -27,6 +34,12 @@ interface UsuarioPerfilHeaderProps {
   podePersonificar: boolean
   /** Inicia a personificação. */
   onPersonificar: () => void
+  /** Exibe o botão de mostrar/ocultar dados sensíveis (só se o perfil tiver algum). */
+  exibirToggleSensivel: boolean
+  /** Dados sensíveis (telefone, CPF, PIS, conta, salário) visíveis em vez de "••••••". */
+  mostrarSensivel: boolean
+  /** Alterna `mostrarSensivel`. */
+  onToggleMostrarSensivel: () => void
 }
 
 /**
@@ -36,22 +49,28 @@ interface UsuarioPerfilHeaderProps {
 export function UsuarioPerfilHeader({
   usuario,
   onUploadAvatar,
+  onRemoverAvatar,
   onEditar,
   podeEditar,
   podePersonificar,
   onPersonificar,
+  exibirToggleSensivel,
+  mostrarSensivel,
+  onToggleMostrarSensivel,
 }: UsuarioPerfilHeaderProps) {
   return (
-    <div className="flex items-start justify-between gap-4">
+    <div className="flex flex-wrap items-start justify-between gap-4">
       <div className="flex items-start gap-4">
         <AvatarUploader
           src={usuario.fotoUrl}
           nome={usuario.nome}
           iniciais={usuario.iniciais}
           className="h-24 w-24"
+          withActions
           onUpload={onUploadAvatar}
+          onRemove={onRemoverAvatar}
         />
-        <div className="flex min-w-0 flex-col gap-1">
+        <div className="flex flex-col gap-1">
           <h2 className="text-xl font-semibold leading-tight">{usuario.nome}</h2>
           <p className="text-sm text-muted-foreground">
             {usuario.funcao} • {usuario.setor}
@@ -65,7 +84,29 @@ export function UsuarioPerfilHeader({
         </div>
       </div>
 
-      <div className="flex items-center gap-2 self-center">
+      <div className="flex items-center gap-2 self-end">
+        {exibirToggleSensivel && (
+          <Tooltip>
+            <TooltipTrigger>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 text-muted-foreground"
+                onClick={onToggleMostrarSensivel}
+              >
+                {mostrarSensivel ? (
+                  <EyeOff className="h-4 w-4" />
+                ) : (
+                  <Eye className="h-4 w-4" />
+                )}
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="top">
+              {mostrarSensivel ? 'Ocultar dados sensíveis' : 'Mostrar dados sensíveis'}
+            </TooltipContent>
+          </Tooltip>
+        )}
         {podePersonificar && (
           <Button variant="outline" size="sm" onClick={onPersonificar}>
             <UserShield className="h-4 w-4" />

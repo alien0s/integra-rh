@@ -209,9 +209,14 @@ EXECUTE FUNCTION qualificacoes_set_updated_at();
 -- Regra própria deste módulo (diferente de férias): um registro APROVADO é
 -- público pra QUALQUER autenticado (perfil de outra pessoa mostra diplomas/
 -- cursos/idiomas já aprovados — ver "visão pública" em
--- qualificacoes.routes.ts). PENDENTE/RECUSADO só o dono e RH/ADMIN veem —
+-- qualificacoes.routes.ts). PENDENTE/RECUSADO só o dono e quem modera veem —
 -- por isso a policy de leitura tem uma 3ª condição (`status = 'APROVADO'`)
 -- que não depende de identidade nenhuma.
+--
+-- ANY (ARRAY['ADMIN', 'RH', 'DP', 'COORDENADOR DP']) = exatamente PAPEIS_RH
+-- em qualificacoes.routes.ts (quem modera/vê a Visão geral) — as duas listas
+-- precisam ficar em sincronia; a checagem da rota sem isto aqui não adianta
+-- nada, porque a policy de RLS filtra as linhas antes mesmo da rota rodar.
 --
 -- FORCE em todas — sem isso o dono da tabela (erpuser, a própria conexão da
 -- API) ignora o RLS inteiro (ver aviso em 008_ferias.sql).
@@ -229,7 +234,7 @@ CREATE POLICY qualificacoes_academicas_leitura ON qualificacoes_academicas
   FOR SELECT
   USING (
     user_id::text = current_setting('app.user_id', true)
-    OR current_setting('app.papel', true) = ANY (ARRAY['ADMIN', 'RH'])
+    OR current_setting('app.papel', true) = ANY (ARRAY['ADMIN', 'RH', 'DP', 'COORDENADOR DP'])
     OR status = 'APROVADO'
   );
 
@@ -244,19 +249,19 @@ CREATE POLICY qualificacoes_academicas_atualizar ON qualificacoes_academicas
   FOR UPDATE
   USING (
     user_id::text = current_setting('app.user_id', true)
-    OR current_setting('app.papel', true) = ANY (ARRAY['ADMIN', 'RH'])
+    OR current_setting('app.papel', true) = ANY (ARRAY['ADMIN', 'RH', 'DP', 'COORDENADOR DP'])
   )
   WITH CHECK (
     user_id::text = current_setting('app.user_id', true)
-    OR current_setting('app.papel', true) = ANY (ARRAY['ADMIN', 'RH'])
+    OR current_setting('app.papel', true) = ANY (ARRAY['ADMIN', 'RH', 'DP', 'COORDENADOR DP'])
   );
 
--- Excluir: dono ou RH/ADMIN (ver excluirFormacao em lib/qualificacoes.ts).
+-- Excluir: dono ou quem modera (ver excluirFormacao em lib/qualificacoes.ts).
 CREATE POLICY qualificacoes_academicas_excluir ON qualificacoes_academicas
   FOR DELETE
   USING (
     user_id::text = current_setting('app.user_id', true)
-    OR current_setting('app.papel', true) = ANY (ARRAY['ADMIN', 'RH'])
+    OR current_setting('app.papel', true) = ANY (ARRAY['ADMIN', 'RH', 'DP', 'COORDENADOR DP'])
   );
 
 /* ── qualificacoes_cursos ────────────────────────────────────────────────── */
@@ -265,7 +270,7 @@ CREATE POLICY qualificacoes_cursos_leitura ON qualificacoes_cursos
   FOR SELECT
   USING (
     user_id::text = current_setting('app.user_id', true)
-    OR current_setting('app.papel', true) = ANY (ARRAY['ADMIN', 'RH'])
+    OR current_setting('app.papel', true) = ANY (ARRAY['ADMIN', 'RH', 'DP', 'COORDENADOR DP'])
     OR status = 'APROVADO'
   );
 
@@ -277,18 +282,18 @@ CREATE POLICY qualificacoes_cursos_atualizar ON qualificacoes_cursos
   FOR UPDATE
   USING (
     user_id::text = current_setting('app.user_id', true)
-    OR current_setting('app.papel', true) = ANY (ARRAY['ADMIN', 'RH'])
+    OR current_setting('app.papel', true) = ANY (ARRAY['ADMIN', 'RH', 'DP', 'COORDENADOR DP'])
   )
   WITH CHECK (
     user_id::text = current_setting('app.user_id', true)
-    OR current_setting('app.papel', true) = ANY (ARRAY['ADMIN', 'RH'])
+    OR current_setting('app.papel', true) = ANY (ARRAY['ADMIN', 'RH', 'DP', 'COORDENADOR DP'])
   );
 
 CREATE POLICY qualificacoes_cursos_excluir ON qualificacoes_cursos
   FOR DELETE
   USING (
     user_id::text = current_setting('app.user_id', true)
-    OR current_setting('app.papel', true) = ANY (ARRAY['ADMIN', 'RH'])
+    OR current_setting('app.papel', true) = ANY (ARRAY['ADMIN', 'RH', 'DP', 'COORDENADOR DP'])
   );
 
 /* ── qualificacoes_idiomas ───────────────────────────────────────────────── */
@@ -297,7 +302,7 @@ CREATE POLICY qualificacoes_idiomas_leitura ON qualificacoes_idiomas
   FOR SELECT
   USING (
     user_id::text = current_setting('app.user_id', true)
-    OR current_setting('app.papel', true) = ANY (ARRAY['ADMIN', 'RH'])
+    OR current_setting('app.papel', true) = ANY (ARRAY['ADMIN', 'RH', 'DP', 'COORDENADOR DP'])
     OR status = 'APROVADO'
   );
 
@@ -309,16 +314,16 @@ CREATE POLICY qualificacoes_idiomas_atualizar ON qualificacoes_idiomas
   FOR UPDATE
   USING (
     user_id::text = current_setting('app.user_id', true)
-    OR current_setting('app.papel', true) = ANY (ARRAY['ADMIN', 'RH'])
+    OR current_setting('app.papel', true) = ANY (ARRAY['ADMIN', 'RH', 'DP', 'COORDENADOR DP'])
   )
   WITH CHECK (
     user_id::text = current_setting('app.user_id', true)
-    OR current_setting('app.papel', true) = ANY (ARRAY['ADMIN', 'RH'])
+    OR current_setting('app.papel', true) = ANY (ARRAY['ADMIN', 'RH', 'DP', 'COORDENADOR DP'])
   );
 
 CREATE POLICY qualificacoes_idiomas_excluir ON qualificacoes_idiomas
   FOR DELETE
   USING (
     user_id::text = current_setting('app.user_id', true)
-    OR current_setting('app.papel', true) = ANY (ARRAY['ADMIN', 'RH'])
+    OR current_setting('app.papel', true) = ANY (ARRAY['ADMIN', 'RH', 'DP', 'COORDENADOR DP'])
   );

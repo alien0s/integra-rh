@@ -16,6 +16,7 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { cn } from '@/lib/utils'
 
 import { comunicacaoService } from '../services'
 import type { DiaSemana } from '../types'
@@ -23,6 +24,8 @@ import type { DiaSemana } from '../types'
 interface NovoComunicadoDialogProps {
   /** Chamado depois de criar com sucesso (ex.: recarregar o mural da Home). */
   onCriado?: () => void
+  /** Classe extra no botão-gatilho (ex.: `flex-1` na linha mobile da Home). */
+  className?: string
 }
 
 const DIAS_SEMANA_LABEL: Record<DiaSemana, string> = {
@@ -50,7 +53,7 @@ function paraIsoLocal(data: Date): string {
  * intervalo), opção de recorrência semanal e anexo opcional (imagem/PDF).
  * Cria o comunicado e, se houver arquivo, envia o anexo em seguida.
  */
-export function NovoComunicadoDialog({ onCriado }: NovoComunicadoDialogProps) {
+export function NovoComunicadoDialog({ onCriado, className }: NovoComunicadoDialogProps) {
   const [aberto, setAberto] = useState(false)
   const [enviando, setEnviando] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
@@ -115,7 +118,7 @@ export function NovoComunicadoDialog({ onCriado }: NovoComunicadoDialogProps) {
       }}
     >
       <DialogTrigger asChild>
-        <Button size="sm">
+        <Button size="sm" className={cn(className)}>
           <Megaphone className="mr-2 h-4 w-4" />
           Novo anúncio
         </Button>

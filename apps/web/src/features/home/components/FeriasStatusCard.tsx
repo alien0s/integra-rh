@@ -3,21 +3,22 @@ import { Palmtree } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import type { FeriasStatusMock } from '../types'
+import type { FeriasStatus } from '../types'
 
 /**
  * Card de status de férias do colaborador logado. Suporta os dois estados:
  *   - `diasParaFerias` preenchido → já tem férias aprovadas chegando.
  *   - `diasParaFerias` null → ainda não solicitou férias pro ciclo vigente
- *     (mesma ideia da obrigação recorrente OBRIGACAO_FERIAS_SOLICITAR do
- *     back — ver lib/obrigacoes.ts — quando isso for ligado na API real).
+ *     (null tanto se não há nenhuma aprovada chegando quanto se já existe um
+ *     pedido pendente ainda não decidido — ver `proximaAprovada` em
+ *     `getResumoFerias`, lib/ferias.ts).
  */
-export function FeriasStatusCard({ diasParaFerias, periodo }: FeriasStatusMock) {
+export function FeriasStatusCard({ diasParaFerias, periodo }: FeriasStatus) {
   const navigate = useNavigate()
   const temFeriasAgendada = diasParaFerias !== null
 
   return (
-    <Card className="shadow-none">
+    <Card className="md:h-80 shadow-none">
       <CardHeader className="flex flex-row items-center gap-2 pb-2">
         <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-emerald-100 text-emerald-600 dark:bg-emerald-900/50 dark:text-emerald-400">
           <Palmtree className="h-5 w-5" />

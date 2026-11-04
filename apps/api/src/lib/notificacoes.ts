@@ -1,4 +1,5 @@
-import { getDatabase } from "./database.js";
+import { aposCommit, getDatabase } from "./database.js";
+import { responsavelPrimeiraEtapaSql } from "./feriasFluxo.js";
 import { notificarClientes } from "./notificacoesStream.js";
 
 /**
@@ -6,6 +7,13 @@ import { notificarClientes } from "./notificacoesStream.js";
  * linhas quando uma ação relevante acontece; a listagem resolve o ator via
  * JOIN e, nas acionáveis, checa o estado atual do recurso de origem para
  * decidir se ainda mostra os botões (Aprovar/Recusar).
+ *
+ * O push SSE (`notificarClientes`) sempre passa por `aposCommit` — nunca é
+ * chamado direto daqui. Todo `emitir*` roda dentro da transação de
+ * `rodaComoUsuario` da rota; empurrar o evento ANTES dela commitar faz o
+ * cliente reconsultar `GET /notificacoes` antes da linha existir de verdade
+ * pra ele (MVCC do Postgres) — a notificação só aparecia depois, ao
+ * recarregar a página. Ver `aposCommit`/`rodaComoUsuario` em `database.ts`.
  */
 
 /* ── Emissão ───────────────────────────────────────────────────────────── */
@@ -38,8 +46,9 @@ export async function emitirParaUsuario(
       ${evento.referenciaId ?? null}, ${evento.requerAcao ?? false}
     )
   `;
-  // Empurra em tempo real para as conexões SSE abertas do destinatário.
-  notificarClientes([destinatarioId]);
+  // Empurra em tempo real para as conexões SSE abertas do destinatário — só
+  // depois que a transação desta requisição commitar de verdade.
+  aposCommit(() => notificarClientes([destinatarioId]));
 }
 
 /**
@@ -92,7 +101,7 @@ export async function emitirOuRenovarParaUsuario(
       )
     `;
   }
-  notificarClientes([destinatarioId]);
+  aposCommit(() => notificarClientes([destinatarioId]));
 }
 
 /**
@@ -123,14 +132,15 @@ export async function emitirParaPapeis(
       AND (${evento.atorId}::uuid IS NULL OR u.id <> ${evento.atorId})
     RETURNING destinatario_id
   `;
-  notificarClientes(inseridos.map((r) => r.destinatario_id));
+  const destinatarios = inseridos.map((r) => r.destinatario_id);
+  aposCommit(() => notificarClientes(destinatarios));
   return inseridos.count;
 }
 
 /* ── Listagem / leitura ────────────────────────────────────────────────── */
 
 /** Ícone do cartão no front (mesmos valores do componente). */
-type CartaoIcone = "arquivo" | "documento" | "curso" | "obrigacao" | "folga";
+type CartaoIcone = "arquivo" | "documento" | "curso" | "obrigacao" | "folga" | "divergencia" | "ferias";
 
 /** Notificação no contrato do front (drawer). */
 export interface NotificacaoDTO {
@@ -164,6 +174,7 @@ interface LinhaNotificacao {
   requer_acao: boolean;
   lida: boolean;
   created_at: Date | string;
+  primeira_etapa_responsavel_id: string | null;
   ref_status: string | null; // status atual do recurso (ferias ou qualificações)
   tem_anexo: boolean;
   referencia_tabela: string | null;
@@ -207,8 +218,12 @@ function tempoRelativo(valor: Date | string): string {
 function iconePorTipo(tipo: string): CartaoIcone {
   if (tipo.startsWith("OBRIGACAO_")) return "obrigacao";
   if (tipo.startsWith("FOLGA")) return "folga";
-  if (tipo.startsWith("FERIAS")) return "documento";
+  if (tipo.startsWith("FERIAS")) return "ferias";
   if (tipo.startsWith("CURSO")) return "curso";
+  // Telefone/estado civil mudou e precisa ser atualizado manualmente no APS
+  // também (ver notificarDpParaAtualizarAps em lib/usuarios.ts) — não é um
+  // arquivo/anexo, é um aviso de sincronização pendente.
+  if (tipo.startsWith("DIVERGENCIA_")) return "divergencia";
   return "arquivo";
 }
 
@@ -223,8 +238,8 @@ const TABELAS_QUALIFICACAO = new Set([
  * Uma notificação acionável só mostra os botões enquanto o recurso de
  * origem estiver no status que aquela ETAPA decide:
  *   - Férias: FERIAS_SOLICITADA (card do gestor) → acionável enquanto
- *     PENDENTE; FERIAS_AGUARDA_DP (card do DP) → acionável enquanto
- *     APROVADO_GESTOR.
+ *     PENDENTE; FERIAS_AGUARDA_RH → APROVADO_GESTOR;
+ *     FERIAS_AGUARDA_ASSISTENTE → APROVADO_RH.
  *   - Cursos e Qualificações (formação/curso/idioma): uma etapa só (RH) →
  *     acionável enquanto PENDENTE.
  * Assim o botão certo aparece pro ator certo e some depois de decidido (por
@@ -238,7 +253,10 @@ function acionavelPorEtapa(
 ): boolean {
   if (referenciaTabela === "ferias_solicitacoes") {
     if (tipo.endsWith("_SOLICITADA")) return refStatus === "PENDENTE";
-    if (tipo.endsWith("_AGUARDA_DP")) return refStatus === "APROVADO_GESTOR";
+    if (tipo.endsWith("_AGUARDA_RH")) return refStatus === "APROVADO_GESTOR";
+    if (tipo.endsWith("_AGUARDA_ASSISTENTE")) return refStatus === "APROVADO_RH";
+    // Notificações da antiga 2ª etapa são somente históricas.
+    if (tipo.endsWith("_AGUARDA_DP")) return false;
     return refStatus === "PENDENTE";
   }
   if (referenciaTabela && TABELAS_QUALIFICACAO.has(referenciaTabela)) {
@@ -253,7 +271,8 @@ export async function listNotificacoes(
 ): Promise<NotificacaoDTO[]> {
   const sql = getDatabase();
   const linhas = await sql<LinhaNotificacao[]>`
-    SELECT n.id, n.tipo, n.acao, n.detalhe, n.requer_acao, n.lida, n.created_at,
+    SELECT (SELECT ${responsavelPrimeiraEtapaSql(sql)} FROM users u WHERE u.id = fs.user_id) AS primeira_etapa_responsavel_id,
+           n.id, n.tipo, n.acao, n.detalhe, n.requer_acao, n.lida, n.created_at,
            n.referencia_tabela, n.referencia_id,
            COALESCE(fs.status, qa.status, qc.status, qi.status) AS ref_status,
            CASE
@@ -288,7 +307,9 @@ export async function listNotificacoes(
     // Só ainda "acionável" se o recurso de origem estiver no status da etapa.
     const requerAcao =
       linha.requer_acao &&
-      acionavelPorEtapa(linha.tipo, linha.referencia_tabela, linha.ref_status);
+      acionavelPorEtapa(linha.tipo, linha.referencia_tabela, linha.ref_status) &&
+      (linha.referencia_tabela !== "ferias_solicitacoes" || !linha.tipo.endsWith("_SOLICITADA") ||
+        linha.primeira_etapa_responsavel_id === destinatarioId);
 
     return {
       id: linha.id,

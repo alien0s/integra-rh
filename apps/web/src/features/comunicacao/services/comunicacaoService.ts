@@ -58,14 +58,13 @@ export const comunicacaoService = {
     return json.data
   },
 
-  /** Busca o anexo do comunicado e devolve uma object URL pra usar em <img> ou abrir. */
-  async buscarAnexoUrl(comunicadoId: number): Promise<string> {
+  /** Baixa o anexo do comunicado (blob autenticado) — thumb e visualizador completo. */
+  async baixarAnexo(comunicadoId: number): Promise<Blob> {
     const response = await fetch(`${API_URL}/comunicados/${comunicadoId}/anexo`, {
       headers: authHeaders(),
     })
     if (!response.ok) return lancarErro(response, 'Falha ao buscar o anexo')
-    const blob = await response.blob()
-    return URL.createObjectURL(blob)
+    return response.blob()
   },
   async listarPendentes(): Promise<Comunicado[]> {
     const response = await fetch(`${API_URL}/comunicados/pendentes`, {

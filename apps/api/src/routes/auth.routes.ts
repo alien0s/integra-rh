@@ -3,6 +3,10 @@ import type { FastifyInstance } from "fastify";
 import { rodaComoUsuario } from "../lib/database.js";
 import { signAuthToken } from "../lib/jwt.js";
 import { authenticateWithLdap, LdapUnavailableError } from "../lib/ldap.js";
+import {
+  listModulosBetaLiberadosPorPapel,
+  listModulosRestritosPorPapel,
+} from "../lib/modulosVisibilidade.js";
 import { hashPassword, verifyPassword } from "../lib/password.js";
 import {
   atualizarPerfilProprio,
@@ -11,7 +15,7 @@ import {
   findOrCreateUsuarioLocal,
   getUsuarioAuthPorEmail,
   getUsuarioPorId,
-  preencherDadosLegadoSeVazio,
+  sincronizarDadosLegado,
   updateUserAvatar,
   type AppUser,
   type UsuarioDetalhado,
@@ -35,8 +39,33 @@ function emailValido(email: string) {
   return email.trim().toLowerCase().endsWith(DOMINIO_CORP);
 }
 
+/**
+ * Módulos (sidebar + rota, ver moduloCodigo em AppSidebar.tsx) que o papel
+ * informado NÃO pode ver/acessar, calculado a partir de modulos_visibilidade
+ * — gravado no token em todo login (ver paraAuthUser/paraAuthUserDeDetalhado
+ * abaixo). ADMIN e modo dev (papelCodigo undefined) sempre liberados: mesma
+ * convenção de exigirPapeis() (ADMIN sempre passa), então nem consulta o
+ * banco pra esses dois casos.
+ */
+async function calcularModulosRestritos(papelCodigo: string | undefined): Promise<string[]> {
+  if (!papelCodigo || papelCodigo === "ADMIN") return [];
+  return listModulosRestritosPorPapel(papelCodigo);
+}
+
+/**
+ * Módulos liberados ANTECIPADAMENTE (sem cadeado) pro papel informado,
+ * durante o lançamento beta — gravado no token junto com modulosRestritos.
+ * ADMIN e modo dev sempre liberados (mesma convenção de
+ * calcularModulosRestritos acima).
+ */
+async function calcularModulosBetaLiberados(papelCodigo: string | undefined): Promise<string[]> {
+  if (!papelCodigo || papelCodigo === "ADMIN") return [];
+  return listModulosBetaLiberadosPorPapel(papelCodigo);
+}
+
 /** Monta o AuthUser do token a partir do usuário do banco. */
-function paraAuthUser(user: AppUser): AuthUser {
+async function paraAuthUser(user: AppUser): Promise<AuthUser> {
+  const papelCodigo = user.papelCodigo ?? undefined;
   return {
     id: user.id,
     email: user.email,
@@ -44,12 +73,15 @@ function paraAuthUser(user: AppUser): AuthUser {
     setor: user.setor ?? undefined,
     funcao: user.funcao ?? undefined,
     avatar: user.avatarUrl ?? undefined,
-    papelCodigo: user.papelCodigo ?? undefined,
+    papelCodigo,
+    modulosRestritos: await calcularModulosRestritos(papelCodigo),
+    modulosBetaLiberados: await calcularModulosBetaLiberados(papelCodigo),
   };
 }
 
 /** Monta o AuthUser a partir de um UsuarioDetalhado (usado na personificação). */
-function paraAuthUserDeDetalhado(usuario: UsuarioDetalhado): AuthUser {
+async function paraAuthUserDeDetalhado(usuario: UsuarioDetalhado): Promise<AuthUser> {
+  const papelCodigo = usuario.papelCodigo ?? undefined;
   return {
     id: usuario.id,
     email: usuario.email,
@@ -57,7 +89,9 @@ function paraAuthUserDeDetalhado(usuario: UsuarioDetalhado): AuthUser {
     setor: usuario.setor || undefined,
     funcao: usuario.funcao || undefined,
     avatar: usuario.fotoUrl || undefined,
-    papelCodigo: usuario.papelCodigo ?? undefined,
+    papelCodigo,
+    modulosRestritos: await calcularModulosRestritos(papelCodigo),
+    modulosBetaLiberados: await calcularModulosBetaLiberados(papelCodigo),
   };
 }
 
@@ -92,7 +126,7 @@ export async function authRoutes(app: FastifyInstance) {
     "/auth/login",
     {
       schema: {
-        tags: ["Autenticação (LDAP) PADRÃO"],
+        tags: ["Autenticação"],
         summary: "Login com e-mail e senha do AD (LDAP)",
         body: {
           type: "object",
@@ -142,7 +176,7 @@ export async function authRoutes(app: FastifyInstance) {
           if (atualizado) user = atualizado;
         }
 
-        const authUser = paraAuthUser(user);
+        const authUser = await paraAuthUser(user);
         return { token: signAuthToken(authUser), user: authUser };
       });
     },
@@ -161,7 +195,7 @@ export async function authRoutes(app: FastifyInstance) {
     "/auth/local/check-email",
     {
       schema: {
-        tags: ["Autenticação com senha no banco local (Teste)"],
+        tags: ["Autenticação"],
         summary: "Verifica se o e-mail já tem senha (login) ou é 1º acesso",
         body: {
           type: "object",
@@ -223,9 +257,9 @@ export async function authRoutes(app: FastifyInstance) {
 
         // Atualiza o last_login_at (regrava o mesmo hash).
         await definirSenhaUsuario(usuario.id, usuario.passwordHash);
-        await preencherDadosLegadoSeVazio(usuario.id, email);
+        await sincronizarDadosLegado(usuario.id, email);
 
-        const authUser = paraAuthUser(usuario);
+        const authUser = await paraAuthUser(usuario);
         return { token: signAuthToken(authUser), user: authUser };
       });
     },
@@ -282,7 +316,7 @@ export async function authRoutes(app: FastifyInstance) {
             .send({ message: "Não foi possível definir a senha." });
         }
 
-        const authUser = paraAuthUser(user);
+        const authUser = await paraAuthUser(user);
         return { token: signAuthToken(authUser), user: authUser };
       });
     },
@@ -309,9 +343,9 @@ export async function authRoutes(app: FastifyInstance) {
   );
 
   /**
-   * Atualização do próprio perfil (self-service): apenas telefone. Não
-   * altera setor/função/papéis (isso é da tela de Usuários / RH). CPF não é
-   * editável — só vem do sistema legado (ver preencherDadosLegadoSeVazio).
+   * Atualização do próprio perfil (self-service): telefone e estado civil.
+   * Não altera setor/função/papéis (isso é da tela de Usuários / RH). CPF não
+   * é editável — só vem do sistema legado (ver sincronizarDadosLegado).
    */
   app.patch<{
     Body: UpdateMeuPerfilBody;
@@ -322,11 +356,15 @@ export async function authRoutes(app: FastifyInstance) {
       onRequest: [app.authenticate],
       schema: {
         tags: ["Autenticação"],
-        summary: "Atualiza o próprio perfil (telefone)",
+        summary: "Atualiza o próprio perfil (telefone, estado civil)",
         body: {
           type: "object",
           properties: {
             telefone: { type: ["string", "null"] },
+            estadoCivilCodigo: {
+              type: ["string", "null"],
+              enum: ["SOLTEIRO", "CASADO", "SEPARADO", "DIVORCIADO", "VIUVO", null],
+            },
           },
           additionalProperties: false,
         },
@@ -400,7 +438,7 @@ export async function authRoutes(app: FastifyInstance) {
         }
 
         const authUser: AuthUser = {
-          ...paraAuthUserDeDetalhado(alvo),
+          ...(await paraAuthUserDeDetalhado(alvo)),
           personificadoPor: { id: ator.id, email: ator.email, nome: ator.nome },
         };
 
@@ -436,7 +474,7 @@ export async function authRoutes(app: FastifyInstance) {
             .send({ message: "Usuário original não encontrado" });
         }
 
-        const authUser = paraAuthUserDeDetalhado(original);
+        const authUser = await paraAuthUserDeDetalhado(original);
         return { token: signAuthToken(authUser), user: authUser };
       });
     },

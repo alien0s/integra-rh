@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { ArrowRight, Ellipsis, Info, PencilLine } from 'lucide-react'
+import { Ellipsis, Info, PencilLine } from 'lucide-react'
 
 import {
   AlertDialog,
@@ -28,6 +28,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
+import { useAuthUser } from '@/features/auth/hooks'
 
 import type {
   MinhaSolicitacao,
@@ -40,7 +41,7 @@ interface HistoricoSolicitacoesProps {
   onCancelar?: (id: string) => void
   /** Exclui do histórico uma solicitação já cancelada. */
   onExcluir?: (id: string) => Promise<unknown> | void
-  /** Aceita o ajuste de data sugerido pelo DP (status AJUSTE_SUGERIDO). */
+  /** Aceita o ajuste de data sugerido pelo RH (status AJUSTE_SUGERIDO). */
   onAceitarAjuste?: (id: string) => Promise<unknown> | void
 }
 
@@ -50,6 +51,7 @@ const statusClassName: Record<StatusMinhaSolicitacao, string> = {
     'border-transparent bg-emerald-100 text-emerald-700 hover:bg-emerald-100 dark:bg-emerald-900/30 dark:text-emerald-400',
   APROVADO_GESTOR:
     'border-transparent bg-blue-100 text-blue-700 hover:bg-blue-100 dark:bg-blue-900/30 dark:text-blue-400',
+  APROVADO_RH: 'border-transparent bg-secondary text-secondary-foreground',
   AJUSTE_SUGERIDO:
     'border-transparent bg-orange-100 text-orange-700 hover:bg-orange-100 dark:bg-orange-900/30 dark:text-orange-400',
   PENDENTE:
@@ -60,32 +62,41 @@ const statusClassName: Record<StatusMinhaSolicitacao, string> = {
     'border-transparent bg-muted text-muted-foreground hover:bg-muted',
 }
 
-/** Rótulo legível de cada status no histórico. */
-const statusLabel: Record<StatusMinhaSolicitacao, string> = {
-  PENDENTE: 'Aguardando gestor',
-  APROVADO_GESTOR: 'Aguardando DP',
-  AJUSTE_SUGERIDO: 'Ajuste sugerido',
-  APROVADO: 'Aprovado',
-  RECUSADO: 'Recusado',
-  CANCELADO: 'Cancelado',
+/** Rótulos das etapas compartilhados por todos os solicitantes. */
+function criarStatusLabel(): Record<StatusMinhaSolicitacao, string> {
+  return {
+    PENDENTE: 'Aguardando gestor',
+    APROVADO_GESTOR: 'Aguardando Recursos Humanos',
+    APROVADO_RH: 'Aguardando Tesoureiro Assistente',
+    AJUSTE_SUGERIDO: 'Ajuste sugerido',
+    APROVADO: 'Aprovado',
+    RECUSADO: 'Recusado',
+    CANCELADO: 'Cancelado',
+  }
 }
 
 /**
  * Enquanto não confirmada (nem recusada/cancelada), o colaborador pode
  * cancelar — inclui AJUSTE_SUGERIDO: se não concorda com a data proposta
- * pelo DP, cancela a solicitação inteira (não há uma "recusa do ajuste").
+ * pelo RH, cancela a solicitação inteira (não há uma "recusa do ajuste").
  */
 function podeCancelar(status: StatusMinhaSolicitacao): boolean {
   return (
     status === 'PENDENTE' ||
     status === 'APROVADO_GESTOR' ||
+    status === 'APROVADO_RH' ||
     status === 'AJUSTE_SUGERIDO'
   )
 }
 
-/** Só dá pra excluir do histórico depois de cancelada (regra também no backend). */
-function podeExcluir(status: StatusMinhaSolicitacao): boolean {
-  return status === 'CANCELADO'
+/**
+ * Só dá pra excluir do histórico depois de cancelada (regra também no
+ * backend) — exceto pro ADMIN, que pode excluir qualquer uma (útil pra
+ * limpar um lançamento errado, manual ou importado, sem precisar cancelar
+ * primeiro).
+ */
+function podeExcluir(status: StatusMinhaSolicitacao, ehAdmin: boolean): boolean {
+  return ehAdmin || status === 'CANCELADO'
 }
 
 /**
@@ -97,6 +108,9 @@ export function HistoricoSolicitacoes({
   onExcluir,
   onAceitarAjuste,
 }: HistoricoSolicitacoesProps) {
+  const papelLogado = useAuthUser()?.papelCodigo
+  const ehAdmin = papelLogado === 'ADMIN'
+  const statusLabel = criarStatusLabel()
   // Solicitação aguardando confirmação de exclusão (null = dialog fechado).
   const [paraExcluir, setParaExcluir] = useState<MinhaSolicitacao | null>(null)
   const [excluindo, setExcluindo] = useState(false)
@@ -131,7 +145,7 @@ export function HistoricoSolicitacoes({
 
   return (
     <div className="flex flex-col gap-4">
-      {/* Ajuste sugerido pelo DP — aguarda o "OK" do colaborador. Não existe
+      {/* Ajuste sugerido pelo RH — aguarda o "OK" do colaborador. Não existe
           "recusar o ajuste": pra isso, cancela a solicitação (menu Ações). */}
       {comAjusteSugerido.map((s) => (
         <div
@@ -144,7 +158,7 @@ export function HistoricoSolicitacoes({
           <div className="flex flex-1 flex-col gap-2">
             <div>
               <p className="text-sm font-semibold text-orange-700 dark:text-orange-300">
-                O DP sugeriu um ajuste de data
+                O RH sugeriu um ajuste de data
               </p>
               <p className="mt-0.5 text-sm text-orange-700/80 dark:text-orange-300/80">
                 De <span className="line-through">{s.periodo}</span> para{' '}
@@ -172,14 +186,6 @@ export function HistoricoSolicitacoes({
       <Card className="overflow-hidden shadow-none">
         <CardHeader className="flex flex-row items-center justify-between pb-4">
           <CardTitle className="text-lg">Histórico de Solicitações</CardTitle>
-          <Button
-            variant="link"
-            size="sm"
-            className="h-auto gap-1 p-0 text-blue-600 dark:text-blue-400"
-          >
-            Ver todas
-            <ArrowRight className="h-4 w-4" />
-          </Button>
         </CardHeader>
         <CardContent className="p-0">
           <Table>
@@ -195,17 +201,7 @@ export function HistoricoSolicitacoes({
               {solicitacoes.map((s) => (
                 <TableRow key={s.id} className="hover:bg-muted/50">
                   <TableCell className="px-6 py-3">
-                    <div className="flex items-center gap-1.5">
-                      <p className="font-medium leading-snug">{s.periodo}</p>
-                      {s.origem === 'REGISTRO_MANUAL' && (
-                        <Badge
-                          variant="outline"
-                          className="rounded px-1.5 py-0 text-[10px] font-normal text-muted-foreground"
-                        >
-                          Lançado manualmente
-                        </Badge>
-                      )}
-                    </div>
+                    <p className="font-medium leading-snug">{s.periodo}</p>
                     <p className="text-xs text-muted-foreground">{s.detalhe}</p>
                   </TableCell>
                   <TableCell className="text-sm text-muted-foreground">
@@ -241,8 +237,8 @@ export function HistoricoSolicitacoes({
                           Cancelar
                         </DropdownMenuItem>
                         <DropdownMenuItem
-                          disabled={!podeExcluir(s.status)}
-                          onSelect={() => podeExcluir(s.status) && setParaExcluir(s)}
+                          disabled={!podeExcluir(s.status, ehAdmin)}
+                          onSelect={() => podeExcluir(s.status, ehAdmin) && setParaExcluir(s)}
                           className="text-red-600 focus:text-red-600 dark:text-red-400 dark:focus:text-red-400"
                         >
                           Excluir
@@ -288,6 +284,13 @@ export function HistoricoSolicitacoes({
                 {paraExcluir?.periodo}
               </span>
               ? Esta ação não pode ser desfeita.
+              {paraExcluir && paraExcluir.status !== 'CANCELADO' ? (
+                <span className="mt-1.5 block font-medium text-destructive">
+                  Atenção: esta solicitação ainda não foi cancelada (status{' '}
+                  {statusLabel[paraExcluir.status]}) — só está habilitado excluir
+                  assim porque você é ADMIN.
+                </span>
+              ) : null}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

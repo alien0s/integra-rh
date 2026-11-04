@@ -10,7 +10,10 @@
     "type-check": "tsc --noEmit",
     "lint": "eslint src --ext .ts",
     "test:ldap": "tsx --env-file=../../.env src/scripts/test-ldap.ts",
-    "test:vr": "tsx --env-file=../../.env src/scripts/test-vr.ts"
+    "test:vr": "tsx --env-file=../../.env src/scripts/test-vr.ts",
+    "test:ferias-fluxo": "tsx src/scripts/test-ferias-fluxo.ts",
+    "sync:ferias": "tsx --env-file=../../.env src/scripts/sync-ferias-legado.ts",
+    "test:ferias-sync": "tsx --env-file=../../.env src/scripts/test-ferias-sync.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1076.0",
@@ -27,6 +30,7 @@
     "ldapjs": "^3.0.7",
     "mssql": "^12.7.0",
     "node-cron": "^4.6.0",
+    "nodemailer": "^10.0.16",
     "pdfkit": "^0.19.1",
     "postgres": "^3.4.9",
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
@@ -36,6 +40,7 @@
     "@types/mssql": "^12.3.0",
     "@types/node": "^22.10.2",
     "@types/node-cron": "^3.0.11",
+    "@types/nodemailer": "^8.0.2",
     "@types/pdfkit": "^0.17.6",
     "tsup": "^8.3.5",
     "tsx": "^4.19.2",

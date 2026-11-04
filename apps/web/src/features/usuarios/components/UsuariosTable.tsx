@@ -33,7 +33,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { useAuthUser } from '@/features/auth/hooks'
-import { podeEditarUsuario } from '@/features/usuarios/lib/permissoes'
+import { podeEditarUsuario, podeExcluirUsuario } from '@/features/usuarios/lib/permissoes'
 import type { Usuario, UsuarioTableColumn } from '@/features/usuarios/types'
 
 interface UsuariosTableProps {
@@ -265,7 +265,12 @@ export function UsuariosTable({
                 </TableCell>
               </TableRow>
             ) : filteredData.length > 0 ? (
-              dadosPaginados.map((usuario) => (
+              dadosPaginados.map((usuario) => {
+                const podeEditar = podeEditarUsuario(usuarioLogado, usuario)
+                const podeExcluir = podeExcluirUsuario(usuarioLogado, usuario)
+                const temAcoes = podeEditar || podeExcluir
+
+                return (
                 <TableRow
                   key={usuario.id}
                   tabIndex={onSelectUsuario ? 0 : undefined}
@@ -332,41 +337,46 @@ export function UsuariosTable({
                     className="w-12 pr-6 text-right"
                     onClick={(event) => event.stopPropagation()}
                   >
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button
-                          variant="ghost"
-                          size="icon-sm"
-                          className="text-muted-foreground"
-                          aria-label="Ações"
-                        >
-                          <Ellipsis className="h-4 w-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end" className="w-40">
-                        {podeEditarUsuario(usuarioLogado, usuario) && (
-                          <>
+                    {temAcoes ? (
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="icon-sm"
+                            className="text-muted-foreground"
+                            aria-label="Ações"
+                          >
+                            <Ellipsis className="h-4 w-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="w-40">
+                          {podeEditar && (
+                            <>
+                              <DropdownMenuItem
+                                onSelect={() => onEditarUsuario?.(usuario)}
+                              >
+                                <Pencil className="h-4 w-4" />
+                                Editar
+                              </DropdownMenuItem>
+                              {podeExcluir && <DropdownMenuSeparator />}
+                            </>
+                          )}
+                          {podeExcluir && (
                             <DropdownMenuItem
-                              onSelect={() => onEditarUsuario?.(usuario)}
+                              className="text-red-600 focus:text-red-600 dark:text-red-400 dark:focus:text-red-400"
+                              onSelect={() => setUsuarioParaExcluir(usuario)}
                             >
-                              <Pencil className="h-4 w-4" />
-                              Editar
+                              <Trash2 className="h-4 w-4" />
+                              Excluir
                             </DropdownMenuItem>
-                            <DropdownMenuSeparator />
-                          </>
-                        )}
-                        <DropdownMenuItem
-                          className="text-red-600 focus:text-red-600 dark:text-red-400 dark:focus:text-red-400"
-                          onSelect={() => setUsuarioParaExcluir(usuario)}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                          Excluir
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
+                          )}
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    ) : null}
                   </TableCell>
                 </TableRow>
-              ))
+                )
+              })
             ) : (
               <TableRow>
                 <TableCell

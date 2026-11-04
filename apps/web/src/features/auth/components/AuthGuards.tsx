@@ -3,6 +3,7 @@ import { Navigate, Outlet, useLocation } from 'react-router-dom'
 
 import { AUTH_ENABLED } from '@/lib/auth'
 import { useAuth } from '@/features/auth/context'
+import { LANCAMENTO_BETA_ATIVO, moduloLiberado, moduloLiberadoNoBeta } from '@/features/auth/lib/modulos'
 
 /**
  * Protege rotas: sem sessão válida, redireciona para /login guardando a
@@ -22,64 +23,27 @@ export function RequireAuth() {
 }
 
 /**
- * Bloqueia COLABORADOR nas rotas que envolve — usada em cima de `RequireAuth`
- * (que já garante sessão válida). Se digitar a URL direto na barra, cai aqui
- * e é redirecionado — não é só a sidebar que esconde o link. O bloqueio de
- * verdade é no backend (ver bloquearColaborador em apps/api); isto é só UX
- * (evita a página carregar e falhar pedido por pedido com 403).
+ * Bloqueia o acesso a um módulo (moduloCodigo, ver MODULOS_SIDEBAR em
+ * AppSidebar.tsx) nas rotas que envolve — usada em cima de `RequireAuth`. Se
+ * digitar a URL direto na barra, cai aqui e é redirecionado — não é só a
+ * sidebar que esconde o link. Checa as duas camadas que decidem se o módulo
+ * aparece no sidebar (moduloLiberado) E se já saiu do cadeado do lançamento
+ * beta (moduloLiberadoNoBeta) — mesmas checagens do sidebar, fonte única em
+ * vez de um guard hardcoded por módulo. O bloqueio de verdade continua no
+ * backend (exigirPapeis()/bloquearColaborador/exigirAcessoBeta em cada rota
+ * da API); isto é só UX (evita a página carregar e falhar pedido por pedido
+ * com 403).
+ *
+ * Redireciona para `/meu-perfil` (não `/home`): é a única rota que o próprio
+ * app já garante sempre acessível a todo mundo — redirecionar para `/home`
+ * arriscaria um loop de redirect se o módulo "home" também estiver oculto/
+ * bloqueado para o papel.
  */
-export function RequireNaoColaborador() {
+export function RequireModulo({ moduloCodigo }: { moduloCodigo: string }) {
   const { usuario } = useAuth()
 
-  if (usuario?.papelCodigo === 'COLABORADOR') {
-    return <Navigate to="/home" replace />
-  }
-
-  return <Outlet />
-}
-
-/**
- * Bloqueia quem não é ADMIN (nível 7) nas rotas que envolve — usada em cima
- * de `RequireAuth`. Mesma lógica de `RequireNaoColaborador`: a proteção de
- * verdade é no backend (exigirPapeis() sem argumentos = só ADMIN), isto é só
- * UX (evita a página carregar e falhar pedido por pedido com 403).
- */
-export function RequireAdmin() {
-  const { usuario } = useAuth()
-
-  if (usuario?.papelCodigo !== 'ADMIN') {
-    return <Navigate to="/home" replace />
-  }
-
-  return <Outlet />
-}
-
-/**
- * Papéis liberados pro VR (por `codigo`, catálogo `roles`) além de ADMIN:
- * DP (Departamento Pessoal), COORDENADOR DP (Coord. Departamento Pessoal),
- * ASSISTENTE (Tesoureiro Assistente, nível 4) e TESOUREIRO (nível 5). Mesmo
- * conjunto no backend (`PAPEIS_LIBERADOS_VR` em
- * apps/api/src/routes/vr.routes.ts, com o mapeamento código → id de cada
- * papel documentado lá) e no sidebar (`podeVerVr` em AppSidebar.tsx) — sem
- * módulo compartilhado entre os dois deployables, mantenha as três listas
- * em sincronia. Ver também docs/vr.md (seção de permissões).
- */
-const PAPEIS_LIBERADOS_VR = new Set(['DP', 'COORDENADOR DP', 'ASSISTENTE', 'TESOUREIRO'])
-
-/**
- * Bloqueia quem não está em PAPEIS_LIBERADOS_VR nas rotas que envolve (ADMIN
- * sempre passa, mesma convenção de exigirPapeis) — usada em cima de
- * `RequireAuth`. A proteção de verdade é no backend (exigirAcessoVr em
- * vr.routes.ts), isto é só UX.
- */
-export function RequireVr() {
-  const { usuario } = useAuth()
-  const liberado =
-    usuario?.papelCodigo === 'ADMIN' ||
-    (usuario?.papelCodigo !== undefined && PAPEIS_LIBERADOS_VR.has(usuario.papelCodigo))
-
-  if (!liberado) {
-    return <Navigate to="/home" replace />
+  if (!moduloLiberado(usuario, moduloCodigo) || !moduloLiberadoNoBeta(usuario, moduloCodigo)) {
+    return <Navigate to="/meu-perfil" replace />
   }
 
   return <Outlet />
@@ -89,25 +53,16 @@ export function RequireVr() {
  * Lançamento pra algumas pessoas (por enquanto): trava as rotas que envolve
  * pra quem não é ADMIN, redirecionando pra /meu-perfil (única rota sempre
  * liberada, mesmo durante o beta — nunca pode ser envolvida por este guard,
- * senão vira loop de redirect). Espelha o cadeado do AppSidebar.tsx
- * (LANCAMENTO_BETA_ATIVO igual, mesmo nome) — desative os dois juntos
- * quando lançar geral. Não cobre /vr, que já tem seu próprio controle
- * (RequireVr) — mantido fora deste guard em App.tsx.
- *
- * `papeisExtras` libera outros papéis além de ADMIN pra esse grupo de rotas
- * específico — usado em /cursos, que RH já pode acessar pra aprovar/recusar
- * cursos/formações/idiomas fora do beta (ver
- * exigirAdminOuPapeisDuranteBeta no backend, mesma ideia).
+ * senão vira loop de redirect). Hoje só usada em `/configuracoes` — uma rota
+ * que não é módulo do sidebar (não tem moduloCodigo nem entra na matriz de
+ * "Visibilidade de módulos"), então continua com a regra antiga, só ADMIN,
+ * sem liberação antecipada por papel. Os demais módulos usam `RequireModulo`
+ * acima, que já cobre o cadeado do beta via `moduloLiberadoNoBeta`.
  */
-const LANCAMENTO_BETA_ATIVO = true
-
-export function RequireLancamentoBeta({ papeisExtras }: { papeisExtras?: Set<string> }) {
+export function RequireLancamentoBeta() {
   const { usuario } = useAuth()
-  const liberado =
-    usuario?.papelCodigo === 'ADMIN' ||
-    (usuario?.papelCodigo !== undefined && papeisExtras?.has(usuario.papelCodigo))
 
-  if (LANCAMENTO_BETA_ATIVO && !liberado) {
+  if (LANCAMENTO_BETA_ATIVO && usuario?.papelCodigo !== 'ADMIN') {
     return <Navigate to="/meu-perfil" replace />
   }
 

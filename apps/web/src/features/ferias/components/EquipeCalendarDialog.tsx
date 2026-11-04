@@ -92,7 +92,11 @@ export function EquipeCalendarDialog() {
                       : 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'
                   }
                 >
-                  {s.status === 'APROVADA' ? 'Confirmado' : 'Aguardando DP'}
+                  {s.status === 'APROVADA'
+                    ? 'Confirmado'
+                    : s.status === 'AGUARDANDO_ASSISTENTE'
+                      ? 'Aguardando Tesoureiro Assistente'
+                      : 'Aguardando Recursos Humanos'}
                 </Badge>
               </li>
             ))}

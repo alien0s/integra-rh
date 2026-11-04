@@ -79,7 +79,9 @@ export function NotificacoesDrawer() {
         >
           <Bell className="h-5 w-5" />
           {naoLidas > 0 ? (
-            <span className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-blue-600 ring-2 ring-card" />
+            <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-orange-500 px-1 text-[10px] font-medium leading-none text-white ring-2 ring-card">
+              {naoLidas > 99 ? '99+' : naoLidas}
+            </span>
           ) : null}
         </Button>
       </DrawerTrigger>

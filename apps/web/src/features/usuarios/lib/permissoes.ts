@@ -39,3 +39,23 @@ export function podeEditarUsuario(
     usuarioLogado.papelCodigo && PAPEIS_QUE_PODEM_EDITAR_USUARIO.has(usuarioLogado.papelCodigo),
   )
 }
+
+/**
+ * Papéis que podem excluir outro usuário — espelha `DELETE /usuarios/:id`
+ * (apps/api/src/routes/usuarios.routes.ts), restrito a ADMIN e nunca sobre
+ * o próprio usuário logado. Sem essa checagem no front, o botão "Excluir"
+ * aparecia pra qualquer papel que acessa /usuarios (ex.: GESTOR, RH — ver
+ * RequireNaoColaborador em App.tsx) e falhava com 403 ao clicar.
+ */
+const PAPEIS_QUE_PODEM_EXCLUIR_USUARIO = new Set(['ADMIN'])
+
+export function podeExcluirUsuario(
+  usuarioLogado: { id: string; papelCodigo?: string } | null | undefined,
+  usuarioAlvo: { id: string } | null | undefined,
+): boolean {
+  if (!usuarioLogado || !usuarioAlvo) return false
+  if (usuarioLogado.id === usuarioAlvo.id) return false
+  return Boolean(
+    usuarioLogado.papelCodigo && PAPEIS_QUE_PODEM_EXCLUIR_USUARIO.has(usuarioLogado.papelCodigo),
+  )
+}

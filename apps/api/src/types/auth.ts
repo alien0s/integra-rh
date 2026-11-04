@@ -19,6 +19,21 @@ export interface AuthUser {
    * rota de encerrar-personificação saber para quem voltar.
    */
   personificadoPor?: PersonificadoPor;
+  /**
+   * Códigos de módulo (moduloCodigo no front, ver AppSidebar.tsx) que este
+   * papel NÃO pode ver/acessar — calculado no login a partir da tabela
+   * modulos_visibilidade (ver calcularModulosRestritos em auth.routes.ts).
+   * ADMIN e modo dev (papelCodigo undefined) sempre [].
+   */
+  modulosRestritos?: string[];
+  /**
+   * Códigos de módulo liberados ANTECIPADAMENTE (sem cadeado) pra este papel
+   * durante o lançamento beta — calculado no login a partir de
+   * modulos_visibilidade.liberado_antecipado (ver
+   * calcularModulosBetaLiberados em auth.routes.ts). ADMIN e modo dev
+   * (papelCodigo undefined) sempre liberados, independente desta lista.
+   */
+  modulosBetaLiberados?: string[];
 }
 
 /** Papéis com permissão para personificar outro usuário. */
@@ -51,4 +66,11 @@ export interface SetPasswordBody {
 /** CPF não está aqui de propósito — só o sistema legado escreve CPF. */
 export interface UpdateMeuPerfilBody {
   telefone: string | null;
+  /**
+   * Código do estado civil (ex.: "SOLTEIRO", ver tabela `estados_civis`) —
+   * opcional porque só o autoatendimento (modo `apenasContato` de
+   * EditarUsuarioModal.tsx) o envia hoje. Trafega como CÓDIGO, nunca o UUID
+   * — resolvido no backend via subquery, igual roleCodigo/resolverRoleId.
+   */
+  estadoCivilCodigo?: string | null;
 }

@@ -10,6 +10,7 @@ import {
   EditarUsuarioModal,
   UsuarioPerfilHeader,
   UsuarioPerfilInfo,
+  temCampoSensivel,
 } from '@/features/usuarios/components'
 import {
   useOpcoesUsuario,
@@ -48,8 +49,15 @@ export function UsuarioPerfilConteudo({
   breadcrumbBase,
   apenasContato = false,
 }: UsuarioPerfilConteudoProps) {
-  const { usuario, isLoading, error, atualizarAvatar, atualizarUsuario, recarregar } =
-    useUsuario(usuarioId)
+  const {
+    usuario,
+    isLoading,
+    error,
+    atualizarAvatar,
+    removerAvatar,
+    atualizarUsuario,
+    recarregar,
+  } = useUsuario(usuarioId)
   // Dropdowns de entidade/setor/função/papel: pulados quando `apenasContato`
   // (colaborador editando o próprio perfil) — nem aparecem no modal, e a API
   // bloquearia papéis/entidades pra esse papel mesmo.
@@ -63,12 +71,20 @@ export function UsuarioPerfilConteudo({
   const podeEditar = apenasContato || podeEditarCompleto
   const [editando, setEditando] = useState(false)
   const [salvando, setSalvando] = useState(false)
+  // Sempre começa oculto (sem persistência) — é a pessoa quem decide revelar
+  // a cada visita ao perfil, nunca uma preferência lembrada. Mora aqui (não
+  // em UsuarioPerfilInfo) porque o botão de olho fica no header, ao lado de
+  // Atualizar foto/Remover — ver UsuarioPerfilHeader.
+  const [mostrarSensivel, setMostrarSensivel] = useState(false)
 
   async function handleSalvarEdicao(input: AtualizarUsuarioInput) {
     setSalvando(true)
     try {
       if (apenasContato) {
-        await authService.updateMeuPerfil({ telefone: input.telefone })
+        await authService.updateMeuPerfil({
+          telefone: input.telefone,
+          estadoCivilCodigo: input.estadoCivilCodigo,
+        })
         await recarregar()
       } else {
         await atualizarUsuario(input)
@@ -97,19 +113,23 @@ export function UsuarioPerfilConteudo({
 
   return (
     <AppLayout title={usuario.nome} breadcrumbs={[...breadcrumbBase, { label: usuario.nome }]}>
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1fr_360px]">
+      <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-[1fr_360px]">
         <Card className="shadow-none">
           <CardContent className="flex flex-col gap-6 p-6">
             <UsuarioPerfilHeader
               usuario={usuario}
               onUploadAvatar={atualizarAvatar}
+              onRemoverAvatar={removerAvatar}
               onEditar={() => setEditando(true)}
               podeEditar={podeEditar}
               podePersonificar={podePersonificar}
               onPersonificar={personificar}
+              exibirToggleSensivel={temCampoSensivel(usuario)}
+              mostrarSensivel={mostrarSensivel}
+              onToggleMostrarSensivel={() => setMostrarSensivel((v) => !v)}
             />
             <Separator />
-            <UsuarioPerfilInfo usuario={usuario} />
+            <UsuarioPerfilInfo usuario={usuario} mostrarSensivel={mostrarSensivel} />
           </CardContent>
         </Card>
 

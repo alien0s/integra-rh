@@ -7,14 +7,13 @@ import { useTheme } from "@/components/theme-provider"
 import {
   LoginPage,
   RequireAuth,
-  RequireNaoColaborador,
-  RequireAdmin,
-  RequireVr,
+  RequireModulo,
   RequireLancamentoBeta,
   RedirectSeLogado,
 } from "@/features/auth"
 import { CursosPage } from "@/features/cursos"
 import { FeriasPage } from "@/features/ferias"
+import { LogsPage } from "@/features/logs"
 import { PontoPage } from "@/features/ponto"
 import { ConfiguracoesPage } from "@/features/configuracoes"
 import { TabelasPage } from "@/features/tabelas"
@@ -26,14 +25,6 @@ import { UsuarioPerfil } from "@/pages/usuarios/UsuarioPerfil"
 import { VrPage } from "@/features/vr"
 import { DetalheQualificacaoDialog } from "@/features/cursos/components"
 import { VisualizadorArquivoDialog } from "@/features/visualizador-arquivo"
-
-/**
- * Papéis liberados em /cursos durante o lançamento beta, além de ADMIN — RH
- * já modera (aprovar/recusar) cursos/formações/idiomas nessa tela fora do
- * beta (ver PAPEIS_RH em apps/api/src/routes/qualificacoes.routes.ts e o
- * cadeado equivalente em AppSidebar.tsx — mantenha os três em sincronia).
- */
-const PAPEIS_LIBERADOS_CURSOS_BETA = new Set(["RH"])
 
 /**
  * Rotas principais da aplicação web.
@@ -58,42 +49,54 @@ export function App() {
         <Route element={<RequireAuth />}>
           {/* Liberada a todo mundo (inclusive COLABORADOR) — sempre o próprio
               usuário logado, nunca outra pessoa. Também é o destino do
-              redirect do lançamento beta (RequireLancamentoBeta) — por isso
-              fica FORA desse guard, nunca pode virar uma rota bloqueada. */}
+              redirect de módulo oculto/bloqueado (RequireModulo) e do
+              lançamento beta (RequireLancamentoBeta) — por isso fica FORA
+              desses guards, nunca pode virar uma rota bloqueada. */}
           <Route path="/meu-perfil" element={<MeuPerfil />} />
 
-          {/* Lançamento pra algumas pessoas (por enquanto): só ADMIN entra
-              nas rotas abaixo — ver RequireLancamentoBeta (fácil de tirar
-              depois: um único flag lá e no cadeado do AppSidebar.tsx). */}
+          {/* Configurações não é um módulo do sidebar (sem moduloCodigo, não
+              entra na matriz "Visibilidade de módulos") — continua só com o
+              bloqueio geral do lançamento beta (ADMIN por enquanto). */}
           <Route element={<RequireLancamentoBeta />}>
-            <Route path="/home" element={<HomePage />} />
-            <Route path="/ferias" element={<FeriasPage />} />
-            <Route path="/ponto" element={<PontoPage />} />
             <Route path="/configuracoes" element={<ConfiguracoesPage />} />
-
-            {/* COLABORADOR não acessa Usuários nem digitando a URL direto. */}
-            <Route element={<RequireNaoColaborador />}>
-              <Route path="/usuarios" element={<UsuariosPage />} />
-              <Route path="/usuarios/:usuarioId" element={<UsuarioPerfil />} />
-            </Route>
-
-            {/* Só ADMIN (nível 7) acessa Tabelas, mesmo digitando a URL direto. */}
-            <Route element={<RequireAdmin />}>
-              <Route path="/tabelas" element={<TabelasPage />} />
-            </Route>
           </Route>
 
-          {/* Cursos e Qualificações também libera RH durante o beta — já
-              modera (aprovar/recusar) cursos/formações/idiomas nessa tela
-              fora do beta, então fica de fora do bloqueio geral acima (ver
-              exigirAdminOuPapeisDuranteBeta no backend, mesma ideia). */}
-          <Route element={<RequireLancamentoBeta papeisExtras={PAPEIS_LIBERADOS_CURSOS_BETA} />}>
+          {/* Logs (diagnóstico de erros inesperados do backend) também não é
+              módulo do sidebar — ferramenta interna, só ADMIN, mesma regra
+              de /configuracoes acima. */}
+          <Route element={<RequireLancamentoBeta />}>
+            <Route path="/logs" element={<LogsPage />} />
+          </Route>
+
+          {/* Cada módulo do sidebar passa só por RequireModulo — já cobre
+              visibilidade (configurável em /tabelas) E o cadeado do
+              lançamento beta (liberação antecipada por papel, mesma tela). */}
+          <Route element={<RequireModulo moduloCodigo="home" />}>
+            <Route path="/home" element={<HomePage />} />
+          </Route>
+
+          <Route element={<RequireModulo moduloCodigo="ferias" />}>
+            <Route path="/ferias" element={<FeriasPage />} />
+          </Route>
+
+          <Route element={<RequireModulo moduloCodigo="ponto" />}>
+            <Route path="/ponto" element={<PontoPage />} />
+          </Route>
+
+          <Route element={<RequireModulo moduloCodigo="usuarios" />}>
+            <Route path="/usuarios" element={<UsuariosPage />} />
+            <Route path="/usuarios/:usuarioId" element={<UsuarioPerfil />} />
+          </Route>
+
+          <Route element={<RequireModulo moduloCodigo="tabelas" />}>
+            <Route path="/tabelas" element={<TabelasPage />} />
+          </Route>
+
+          <Route element={<RequireModulo moduloCodigo="cursos" />}>
             <Route path="/cursos" element={<CursosPage />} />
           </Route>
 
-          {/* Só DP (ou os IDs liberados) acessa VR, mesmo digitando a URL
-              direto — controle próprio, fora do lançamento beta acima. */}
-          <Route element={<RequireVr />}>
+          <Route element={<RequireModulo moduloCodigo="vr" />}>
             <Route path="/vr" element={<VrPage />} />
           </Route>
         </Route>

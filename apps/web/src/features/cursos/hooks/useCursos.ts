@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { cursosService } from '../services'
 import type {
   CursoQualificacao,
+  EditarFormacaoInput,
   FormacaoAcademica,
   FuncionarioQualificacoes,
   Idioma,
@@ -27,22 +28,34 @@ export function useCursos() {
 
   const carregar = useCallback(async () => {
     setIsLoading(true)
+
+    // Minhas qualificações (aba Pessoal) — todo mundo pode ver as próprias,
+    // independente de papel.
     try {
-      const [resumoResp, funcionariosResp, minhas] = await Promise.all([
-        cursosService.getResumo(),
-        cursosService.getFuncionarios(),
-        cursosService.getMinhas(),
-      ])
-      setResumo(resumoResp)
-      setFuncionarios(funcionariosResp)
+      const minhas = await cursosService.getMinhas()
       setFormacoes(minhas.formacoes)
       setCursos(minhas.cursos)
       setIdiomas(minhas.idiomas)
     } catch (error) {
-      console.error('Erro ao buscar dados de cursos e qualificações', error)
-    } finally {
-      setIsLoading(false)
+      console.error('Erro ao buscar suas qualificações', error)
     }
+
+    // Visão geral (resumo + funcionários) — só quem modera (RH/DP/Admin, ver
+    // PAPEIS_RH no backend). Busca à parte do bloco acima: um 403 aqui é
+    // esperado pra quem não modera, e não pode derrubar a aba Pessoal junto
+    // (por isso não está no mesmo Promise.all/try).
+    try {
+      const [resumoResp, funcionariosResp] = await Promise.all([
+        cursosService.getResumo(),
+        cursosService.getFuncionarios(),
+      ])
+      setResumo(resumoResp)
+      setFuncionarios(funcionariosResp)
+    } catch (error) {
+      console.error('Erro ao buscar dados da Visão geral', error)
+    }
+
+    setIsLoading(false)
   }, [])
 
   useEffect(() => {
@@ -62,6 +75,16 @@ export function useCursos() {
   async function excluirFormacao(id: string) {
     await cursosService.excluirFormacao(id)
     setFormacoes((atual) => atual.filter((item) => item.id !== id))
+  }
+
+  /** Edita a formação e, se um novo diploma foi selecionado, já envia o anexo em seguida. */
+  async function editarFormacao(id: string, input: EditarFormacaoInput, arquivo?: File | null) {
+    let editada = await cursosService.editarFormacao(id, input)
+    if (arquivo) {
+      editada = await cursosService.enviarAnexoFormacao(id, arquivo)
+    }
+    setFormacoes((atual) => atual.map((item) => (item.id === id ? editada : item)))
+    return editada
   }
 
   /** Cria o curso/certificação e, se um certificado foi selecionado, já envia o anexo em seguida. */
@@ -98,6 +121,7 @@ export function useCursos() {
     isLoading,
     criarFormacao,
     excluirFormacao,
+    editarFormacao,
     criarCurso,
     excluirCurso,
     criarOuAtualizarIdioma,

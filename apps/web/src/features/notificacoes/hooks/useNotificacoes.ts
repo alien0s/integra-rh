@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
-import { getToken } from '@/lib/auth'
 import type { Notificacao } from '@/features/notificacoes/types'
 import { notificacoesService } from '@/features/notificacoes/services'
+import { assinarNotificacoes } from '@/features/notificacoes/lib/notificacaoStream'
 import { feriasService } from '@/features/ferias/services'
 import { cursosService } from '@/features/cursos/services'
 
@@ -18,7 +18,7 @@ const INTERVALO_POLLING_MS = 60_000
  *
  * Tempo real via **SSE** (`GET /notificacoes/stream`): o backend empurra um
  * evento assim que uma notificação é criada (aprovação do gestor, confirmação
- * do DP, recusa, cancelamento…) e aqui refazemos a busca na hora. Um polling
+ * do Tesoureiro Assistente, recusa, cancelamento…) e aqui refazemos a busca na hora. Um polling
  * silencioso de 60s serve de fallback (pausa com aba oculta, refetch ao focar).
  */
 export function useNotificacoes() {
@@ -41,17 +41,10 @@ export function useNotificacoes() {
     carregar()
   }, [carregar])
 
-  // Tempo real via SSE: ao receber o gatilho, refaz a busca silenciosamente.
-  // O EventSource não manda header, então o token vai por query. Ele reconecta
-  // sozinho em caso de queda (retry nativo).
+  // Tempo real via SSE (conexão compartilhada — ver notificacaoStream.ts):
+  // ao receber o gatilho, refaz a busca silenciosamente.
   useEffect(() => {
-    const token = getToken()
-    if (!token) return
-    const es = new EventSource(
-      `/api/notificacoes/stream?token=${encodeURIComponent(token)}`,
-    )
-    es.addEventListener('notificacao', () => carregar(true))
-    return () => es.close()
+    return assinarNotificacoes(() => carregar(true))
   }, [carregar])
 
   // Polling silencioso + pausa com aba oculta + refetch ao focar.
@@ -99,8 +92,8 @@ export function useNotificacoes() {
   /**
    * Age no recurso de origem da notificação (férias ou Cursos e
    * Qualificações) e recarrega. Em férias, "aprovar" respeita a ETAPA: card
-   * do gestor (…_SOLICITADA) aprova a 1ª etapa; card do DP (…_AGUARDA_DP)
-   * confirma a 2ª. Em Cursos e Qualificações é uma etapa só (RH). A recusa
+   * do gestor (…_SOLICITADA) aprova a 1ª etapa; RH (…_AGUARDA_RH)
+   * aprova a 2ª; Assistente (…_AGUARDA_ASSISTENTE) confirma a 3ª. Em Cursos e Qualificações é uma etapa só (RH). A recusa
    * sempre exige um motivo.
    */
   async function agirNaReferencia(
@@ -114,7 +107,7 @@ export function useNotificacoes() {
     const motivoRecusa = motivo?.trim() || 'Recusado'
     if (alvo.referenciaTabela === 'ferias_solicitacoes') {
       if (decisao === 'aprovar') {
-        if (alvo.tipo?.endsWith('_AGUARDA_DP')) {
+        if (alvo.tipo?.endsWith('_AGUARDA_ASSISTENTE')) {
           await feriasService.confirmar(alvo.referenciaId)
         } else {
           await feriasService.aprovar(alvo.referenciaId)

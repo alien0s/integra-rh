@@ -33,20 +33,20 @@ export function useFerias(enabled = true) {
     if (enabled) carregar()
   }, [enabled, carregar])
 
-  /** 1ª etapa (gestor): aprova → AGUARDANDO_DP. Recarrega para refletir o progresso. */
+  /** 1ª etapa (gestor): aprova → AGUARDANDO_RH. Recarrega para refletir o progresso. */
   async function aprovar(id: string) {
     await feriasService.aprovar(id)
     await carregar()
   }
 
-  /** 2ª etapa (DP): confirma → APROVADA. Recarrega para refletir o progresso. */
+  /** 3ª etapa (Tesoureiro Assistente): confirma → APROVADA. Recarrega para refletir o progresso. */
   async function confirmar(id: string) {
     await feriasService.confirmar(id)
     await carregar()
   }
 
   /**
-   * 2ª etapa (alternativa à confirmação): DP devolve uma sugestão de nova
+   * 2ª etapa (alternativa à aprovação): RH devolve uma sugestão de nova
    * data → AJUSTE_SUGERIDO. Recarrega para refletir o período proposto.
    */
   async function sugerirAjuste(id: string, dataInicioSugerida: string, motivo: string) {
@@ -74,7 +74,7 @@ export function useFerias(enabled = true) {
     )
   }
 
-  /** Cancela e reflete no item (DP/ADMIN). */
+  /** Cancela e reflete no item (RH/Assistente/ADMIN). */
   async function cancelar(id: string, motivo?: string | null) {
     await feriasService.cancelar(id, motivo)
     setSolicitacoes((atual) =>

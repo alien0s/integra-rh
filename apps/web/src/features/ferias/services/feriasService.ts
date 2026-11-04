@@ -115,7 +115,7 @@ export const feriasService = {
     return { ...json.data, avatarUrl: resolverAvatar(json.data.avatarUrl) }
   },
 
-  /** 1ª etapa — gestor do setor aprova (PENDENTE → AGUARDANDO_DP). */
+  /** 1ª etapa — gestor do setor aprova (PENDENTE → AGUARDANDO_RH). */
   async aprovar(id: string): Promise<void> {
     const response = await fetch(`${API_URL}/ferias/${id}/aprovar`, {
       method: 'PATCH',
@@ -124,7 +124,7 @@ export const feriasService = {
     if (!response.ok) return lancarErro(response, 'Falha ao aprovar')
   },
 
-  /** 2ª etapa — DP confirma (AGUARDANDO_DP → APROVADA). */
+  /** 3ª etapa — Tesoureiro Assistente confirma (AGUARDANDO_ASSISTENTE → APROVADA). */
   async confirmar(id: string): Promise<void> {
     const response = await fetch(`${API_URL}/ferias/${id}/confirmar`, {
       method: 'PATCH',
@@ -134,7 +134,7 @@ export const feriasService = {
   },
 
   /**
-   * 2ª etapa (alternativa à confirmação) — DP sugere um novo início pro
+   * 2ª etapa (alternativa à aprovação) — RH sugere um novo início pro
    * período (até 5 dias de deslocamento), devolvendo pro colaborador aceitar.
    */
   async sugerirAjuste(
@@ -149,7 +149,7 @@ export const feriasService = {
     if (!response.ok) return lancarErro(response, 'Falha ao sugerir o ajuste')
   },
 
-  /** Colaborador aceita o ajuste de data sugerido pelo DP. */
+  /** Colaborador aceita o ajuste de data sugerido pelo RH. */
   async aceitarAjuste(id: string): Promise<void> {
     const response = await fetch(`${API_URL}/ferias/${id}/aceitar-ajuste`, {
       method: 'PATCH',
@@ -168,7 +168,7 @@ export const feriasService = {
     if (!response.ok) return lancarErro(response, 'Falha ao recusar')
   },
 
-  /** Cancela uma solicitação (colaborador dono, ou DP/ADMIN). */
+  /** Cancela uma solicitação (colaborador dono, ou RH/Assistente/ADMIN). */
   async cancelar(id: string, motivo?: string | null): Promise<void> {
     const response = await fetch(`${API_URL}/ferias/${id}/cancelar`, {
       method: 'PATCH',

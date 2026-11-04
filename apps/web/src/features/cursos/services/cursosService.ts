@@ -1,6 +1,7 @@
 import { getToken } from '@/lib/auth'
 import type {
   CursoQualificacao,
+  EditarFormacaoInput,
   FormacaoAcademica,
   FuncionarioQualificacoes,
   Idioma,
@@ -8,6 +9,7 @@ import type {
   NovoCursoInput,
   NovoIdiomaInput,
   QualificacoesDeUsuario,
+  QualificacoesPendentes,
   QualificacoesResumo,
 } from '../types'
 
@@ -114,6 +116,18 @@ export const cursosService = {
     if (!response.ok) return lancarErro(response, 'Falha ao excluir a formação')
   },
 
+  /** Edita os campos de uma formação já cadastrada (volta como pendente). */
+  async editarFormacao(id: string, input: EditarFormacaoInput): Promise<FormacaoAcademica> {
+    const response = await fetch(`${API_URL}/qualificacoes/formacoes/${id}`, {
+      method: 'PATCH',
+      headers: jsonHeaders(),
+      body: JSON.stringify(input),
+    })
+    if (!response.ok) return lancarErro(response, 'Falha ao salvar as alterações')
+    const json = (await response.json()) as ApiResponse<FormacaoAcademica>
+    return json.data
+  },
+
   async criarCurso(input: NovoCursoInput): Promise<CursoQualificacao> {
     const response = await fetch(`${API_URL}/qualificacoes/cursos`, {
       method: 'POST',
@@ -198,7 +212,17 @@ export const cursosService = {
     return response.blob()
   },
 
-  /* ── Moderação (RH/Admin) — usado pelas notificações acionáveis ────────── */
+  /* ── Moderação (RH/DP/Admin) — usado pelas notificações acionáveis ──────── */
+
+  /** Fila de moderação completa (tudo PENDENTE) — QualificacoesPendentesDialog. */
+  async getPendentes(): Promise<QualificacoesPendentes> {
+    const response = await fetch(`${API_URL}/qualificacoes/pendentes`, {
+      headers: authHeaders(),
+    })
+    if (!response.ok) return lancarErro(response, 'Falha ao buscar a fila de moderação')
+    const json = (await response.json()) as ApiResponse<QualificacoesPendentes>
+    return json.data
+  },
 
   /** Detalhe de uma formação por id (qualquer status) — DetalheQualificacaoDialog. */
   async getFormacao(id: string): Promise<FormacaoAcademica> {

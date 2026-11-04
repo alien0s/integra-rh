@@ -5,14 +5,19 @@ import { bloquearColaborador, exigirPapeis } from "../plugins/auth.js";
 import {
   atribuirGerente,
   atualizarUsuario,
+  criarUsuario,
   excluirUsuario,
   getUsuarioAvatarKey,
   getUsuarioPorId,
+  listAniversariantesDoMes,
   listFuncoes,
   listSetores,
   listUsuarios,
   mascararCamposSensiveis,
+  UsuarioJaExisteError,
+  type AniversarianteDTO,
   type AtualizarUsuarioInput,
+  type CriarUsuarioInput,
   type OpcaoSelecao,
   type UsuarioDetalhado,
 } from "../lib/usuarios.js";
@@ -77,6 +82,87 @@ export async function usuariosRoutes(app: FastifyInstance) {
           mascararCamposSensiveis(usuario, request.user),
         );
         return { data: mascarados, total: mascarados.length };
+      });
+    },
+  );
+
+  /**
+   * GET /usuarios/aniversariantes
+   * Aniversariantes do mês corrente, pro card do dashboard (/home). Ao
+   * contrário de GET /usuarios, NÃO bloqueia COLABORADOR — é informação
+   * "mural da empresa" (nome, foto, dia), não dado sensível, e todo mundo vê
+   * o próprio dashboard. (Fastify prioriza rota estática sobre `:usuarioId`
+   * automaticamente, então a ordem de registro aqui não importa de verdade —
+   * mas fica perto do resto das rotas de listagem por organização.)
+   */
+  app.get<{ Reply: ApiListResponse<AniversarianteDTO> }>(
+    "/usuarios/aniversariantes",
+    {
+      onRequest: [app.authenticate],
+      schema: { tags: ["Usuários"], summary: "Aniversariantes do mês" },
+    },
+    async () => {
+      const aniversariantes = await listAniversariantesDoMes();
+      return { data: aniversariantes, total: aniversariantes.length };
+    },
+  );
+
+  /**
+   * POST /usuarios
+   * Cria um usuário com cadastro já completo (nome, e-mail, entidade, setor,
+   * papel e tipo de vínculo) — só ADMIN. Ao contrário da importação por
+   * planilha ou de "atribuir gerente" (registros mínimos, completados pelo
+   * APS no 1º login), aqui o admin já preenche tudo na hora — ver
+   * `criarUsuario` em lib/usuarios.ts.
+   */
+  app.post<{
+    Body: CriarUsuarioInput;
+    Reply: ApiResponse<UsuarioDetalhado> | { message: string };
+  }>(
+    "/usuarios",
+    {
+      onRequest: [app.authenticate, exigirPapeis()],
+      schema: {
+        tags: ["Usuários"],
+        summary: "Cria um usuário com cadastro completo (ADMIN)",
+        body: {
+          type: "object",
+          required: ["nome", "email", "entidadeId", "setorId", "roleCodigo", "tipoFuncionario"],
+          properties: {
+            nome: { type: "string", minLength: 1 },
+            email: { type: "string", format: "email" },
+            entidadeId: { type: "string", minLength: 1 },
+            setorId: { type: "string", minLength: 1 },
+            roleCodigo: { type: "string", minLength: 1 },
+            tipoFuncionario: { type: "string", enum: ["COLABORADOR", "APRENDIZ/ESTAGIÁRIO"] },
+          },
+          additionalProperties: false,
+        },
+      },
+    },
+    async (request, reply) => {
+      const email = request.body.email.trim().toLowerCase();
+      if (!email.endsWith("@adventistas.org")) {
+        return reply
+          .code(400)
+          .send({ message: "Use um e-mail corporativo (@adventistas.org)." });
+      }
+
+      return rodaComoUsuario(request.user, async () => {
+        try {
+          const usuario = await criarUsuario({ ...request.body, email, nome: request.body.nome.trim() });
+          return reply.code(201).send({ data: usuario });
+        } catch (error) {
+          if (error instanceof UsuarioJaExisteError) {
+            return reply.code(409).send({ message: error.message });
+          }
+          if ((error as { code?: string }).code === "23503") {
+            return reply
+              .code(400)
+              .send({ message: "Entidade, setor ou papel não encontrado." });
+          }
+          throw error;
+        }
       });
     },
   );
@@ -184,7 +270,10 @@ export async function usuariosRoutes(app: FastifyInstance) {
    * PATCH /usuarios/:usuarioId
    * Atualiza os campos editáveis (telefone, setor, função, papel). CPF não
    * está aqui de propósito — só vem do sistema legado (ver
-   * lib/usuarios.ts: inserirUsuarioComLegado/preencherDadosLegadoSeVazio).
+   * lib/usuarios.ts: inserirUsuarioComLegado/sincronizarDadosLegado).
+   * Mudar o telefone aqui notifica DP/COORDENADOR DP pra replicarem a
+   * mudança no APS (ver notificarDpParaAtualizarAps) — ele deixa de ser
+   * sobrescrito pelo APS no próximo login.
    *
    * Restrita a ADMIN (`exigirPapeis()` sem argumentos — mesma convenção de
    * tabelas.routes.ts) e nunca sobre o próprio usuário logado: esta rota
@@ -233,6 +322,7 @@ export async function usuariosRoutes(app: FastifyInstance) {
         const usuario = await atualizarUsuario(
           request.params.usuarioId,
           request.body,
+          request.user.id,
         );
 
         if (!usuario) {

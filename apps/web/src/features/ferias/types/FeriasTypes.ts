@@ -3,18 +3,20 @@
  */
 
 /**
- * Situação de uma solicitação de férias (fluxo de 2 etapas):
+ * Situação de uma solicitação de férias (fluxo de 3 etapas):
  *   PENDENTE         → aguardando o gestor do setor.
- *   AGUARDANDO_DP    → gestor aprovou; aguardando o DP confirmar.
- *   AJUSTE_SUGERIDO  → DP devolveu uma sugestão de nova data; aguardando o
+ *   AGUARDANDO_RH    → aguardando análise do RH (demais solicitantes).
+ *   AGUARDANDO_ASSISTENTE → RH aprovou; aguarda confirmação final.
+ *   AJUSTE_SUGERIDO  → RH devolveu uma sugestão de nova data; aguardando o
  *                      colaborador aceitar.
- *   APROVADA         → DP confirmou (final).
- *   REJEITADA        → recusada pelo gestor ou DP.
- *   CANCELADA        → cancelada (colaborador antes de confirmar, ou DP depois).
+ *   APROVADA         → Tesoureiro Assistente confirmou (final).
+ *   REJEITADA        → recusada pelo gestor, RH ou Tesoureiro Assistente.
+ *   CANCELADA        → cancelada (colaborador antes de confirmar, ou RH/Assistente depois).
  */
 export type StatusSolicitacaoFerias =
   | 'PENDENTE'
-  | 'AGUARDANDO_DP'
+  | 'AGUARDANDO_RH'
+  | 'AGUARDANDO_ASSISTENTE'
   | 'AJUSTE_SUGERIDO'
   | 'APROVADA'
   | 'REJEITADA'
@@ -35,8 +37,12 @@ export interface SolicitacaoFerias {
   tipo: 'FERIAS' | 'FOLGA'
   /** ID do colaborador solicitante (para saber se é do próprio usuário logado). */
   userId: string
-  /** Papel do solicitante — define quem confirma (COORDENADOR DP ou RH). */
+  /** Papel do solicitante (RH segue da chefia ao Assistente). */
   solicitantePapel?: string
+  /** Chefia efetiva da 1ª etapa, calculada pela API. */
+  responsavelPrimeiraEtapaId?: string
+  /** Solicitante RH: a etapa de revisão do RH é dispensada. */
+  etapaRhDispensada?: boolean
   /** Nome do colaborador solicitante. */
   funcionarioNome: string
   /** Matrícula/ID do colaborador. */
@@ -68,12 +74,15 @@ export interface SolicitacaoFerias {
   /** Progresso da aprovação — quem aprovou/confirmou/cancelou e quando. */
   aprovadoGestorNome?: string
   aprovadoGestorEm?: string
+  aprovadoRhNome?: string
+  aprovadoRhEm?: string
+  /** Autor da decisão final (nome legado do contrato). */
   aprovadoDpNome?: string
   decididoEm?: string
   canceladoNome?: string
   canceladoEm?: string
   motivoCancelamento?: string
-  /** Ajuste sugerido pelo DP (status AJUSTE_SUGERIDO) — período proposto + motivo. */
+  /** Ajuste sugerido pelo RH (status AJUSTE_SUGERIDO) — período proposto + motivo. */
   periodoSugerido?: string
   ajusteSugeridoPorNome?: string
   ajusteSugeridoEm?: string
@@ -115,6 +124,14 @@ export interface FeriasResumo {
    * valendo por cima: quem tem as duas ainda escolhe 10/15 dias.
    */
   exigeTrintaDias: boolean
+  /**
+   * Próxima (ou em andamento) férias já aprovada — pro card do dashboard
+   * (/home). null quando não há nenhuma aprovada com fim ainda não passado.
+   */
+  proximaAprovada: {
+    diasParaInicio: number
+    periodo: string
+  } | null
 }
 
 /** Um colaborador no diálogo "Exceções" (DP) — nome/foto/setor + as duas flags. */
@@ -132,6 +149,7 @@ export interface ExcecaoFeriasUsuario {
 export type StatusMinhaSolicitacao =
   | 'PENDENTE'
   | 'APROVADO_GESTOR'
+  | 'APROVADO_RH'
   | 'AJUSTE_SUGERIDO'
   | 'APROVADO'
   | 'RECUSADO'
@@ -154,7 +172,7 @@ export interface MinhaSolicitacao {
   diasVendidos: number
   /** Motivo, quando RECUSADO. */
   motivoRejeicao?: string
-  /** Ajuste sugerido pelo DP (status AJUSTE_SUGERIDO) — período proposto + motivo. */
+  /** Ajuste sugerido pelo RH (status AJUSTE_SUGERIDO) — período proposto + motivo. */
   periodoSugerido?: string
   motivoAjuste?: string
 }

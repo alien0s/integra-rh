@@ -1,4 +1,13 @@
-import { AlertTriangle, Coffee, FileText, GraduationCap, Paperclip, type LucideIcon } from 'lucide-react'
+import {
+  AlertTriangle,
+  Coffee,
+  FileText,
+  GraduationCap,
+  Paperclip,
+  Palmtree,
+  RefreshCw,
+  type LucideIcon,
+} from 'lucide-react'
 
 import {
   Card,
@@ -16,6 +25,10 @@ const iconePorTipo: Record<AtividadeUsuario['icone'], LucideIcon> = {
   curso: GraduationCap,
   obrigacao: AlertTriangle,
   folga: Coffee,
+  // Telefone/estado civil mudou e precisa ser atualizado manualmente no APS
+  // também — é um aviso de sincronização pendente, não um anexo.
+  divergencia: RefreshCw,
+  ferias: Palmtree,
 }
 
 interface AtividadesRecentesCardProps {

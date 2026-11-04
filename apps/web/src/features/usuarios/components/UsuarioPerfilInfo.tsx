@@ -10,8 +10,6 @@ import {
   CalendarX,
   CheckCircle2,
   Clock,
-  Eye,
-  EyeOff,
   Fingerprint,
   Hash,
   Heart,
@@ -25,7 +23,6 @@ import {
   Wallet
 } from 'lucide-react'
 
-import { Button } from '@/components/ui/button'
 import {
   Tooltip,
   TooltipContent,
@@ -36,6 +33,21 @@ import type { Usuario } from '@/features/usuarios/types'
 
 interface UsuarioPerfilInfoProps {
   usuario: Usuario
+  /** Mostra os campos sensíveis (telefone, CPF, PIS, conta, salário) em vez de "••••••". */
+  mostrarSensivel: boolean
+}
+
+/**
+ * Se `usuario` tem algum campo sensível (telefone/CPF/PIS/conta/salário)
+ * com valor — usado pelo header (UsuarioPerfilHeader) pra decidir se mostra
+ * o botão de olho, já que ele mora lá (ao lado de Atualizar foto/Remover),
+ * não aqui. Mantenha em sincronia com `sensivel: true` na lista `items`
+ * abaixo.
+ */
+export function temCampoSensivel(usuario: Usuario): boolean {
+  return Boolean(
+    usuario.telefone || usuario.cpf || usuario.pis || usuario.numeroConta || usuario.salario != null,
+  )
 }
 
 interface InfoItem {
@@ -73,14 +85,12 @@ const TIPO_FUNCIONARIO_LABEL: Record<string, string> = {
  * no tooltip.
  *
  * Telefone, CPF, PIS, conta bancária e salário são "sensíveis": ficam atrás
- * de "••••••" até clicar no olhinho (canto superior direito) — sempre
- * começam ocultos, sem lembrar a preferência de uma visita pra outra.
+ * de "••••••" até `mostrarSensivel` virar true — o botão de olho mora no
+ * header (UsuarioPerfilHeader, ao lado de Atualizar foto/Remover), por isso
+ * o estado também mora lá em cima (UsuarioPerfilConteudo), não aqui.
  */
-export function UsuarioPerfilInfo({ usuario }: UsuarioPerfilInfoProps) {
+export function UsuarioPerfilInfo({ usuario, mostrarSensivel }: UsuarioPerfilInfoProps) {
   const [copiado, setCopiado] = useState<string | null>(null)
-  // Sempre começa oculto (sem persistência) — é a pessoa quem decide revelar
-  // a cada visita ao perfil, nunca uma preferência lembrada.
-  const [mostrarSensivel, setMostrarSensivel] = useState(false)
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
@@ -213,78 +223,51 @@ export function UsuarioPerfilInfo({ usuario }: UsuarioPerfilInfoProps) {
   ]
 
   const visibleItems = items.filter((item) => Boolean(item.value))
-  const temDadoSensivel = visibleItems.some((item) => item.sensivel)
 
   return (
-    <div className="flex flex-col gap-4">
-      {temDadoSensivel && (
-        <div className="flex justify-end">
-          <Tooltip>
-            <TooltipTrigger>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                className="h-8 w-8 text-muted-foreground"
-                onClick={() => setMostrarSensivel((v) => !v)}
-              >
-                {mostrarSensivel ? (
-                  <EyeOff className="h-4 w-4" />
-                ) : (
-                  <Eye className="h-4 w-4" />
-                )}
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="top">
-              {mostrarSensivel ? 'Ocultar dados sensíveis' : 'Mostrar dados sensíveis'}
-            </TooltipContent>
-          </Tooltip>
-        </div>
-      )}
-      <div className="grid grid-cols-1 gap-x-6 gap-y-5 sm:grid-cols-2">
-        {visibleItems.map(({ icon: Icon, label, value, copiavel, sensivel }) => {
-          const oculto = Boolean(sensivel) && !mostrarSensivel
-          return (
-            <div key={label} className="flex items-start gap-3">
-              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
-                <Icon className="h-4 w-4" />
-              </div>
-              <div className="min-w-0">
-                <p className="text-xs text-muted-foreground">{label}</p>
-                {oculto ? (
-                  <p className="truncate text-sm font-medium tracking-widest text-muted-foreground">
-                    {MASCARA_SENSIVEL}
-                  </p>
-                ) : copiavel ? (
-                  <Tooltip className="block min-w-0 max-w-full">
-                    <TooltipTrigger>
-                      <button
-                        type="button"
-                        onClick={() => copiar(label, value as string)}
-                        className="block w-full truncate text-left text-sm font-medium hover:underline"
-                      >
-                        {value}
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent side="top">
-                      {copiado === label ? (
-                        <span className="flex items-center gap-1">
-                          <CheckCircle2 className="h-3.5 w-3.5 text-green-500" />
-                          Copiado!
-                        </span>
-                      ) : (
-                        'Copiar'
-                      )}
-                    </TooltipContent>
-                  </Tooltip>
-                ) : (
-                  <p className="truncate text-sm font-medium">{value}</p>
-                )}
-              </div>
+    <div className="grid grid-cols-1 gap-x-6 gap-y-5 sm:grid-cols-2">
+      {visibleItems.map(({ icon: Icon, label, value, copiavel, sensivel }) => {
+        const oculto = Boolean(sensivel) && !mostrarSensivel
+        return (
+          <div key={label} className="flex items-start gap-3">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+              <Icon className="h-4 w-4" />
             </div>
-          )
-        })}
-      </div>
+            <div className="min-w-0">
+              <p className="text-xs text-muted-foreground">{label}</p>
+              {oculto ? (
+                <p className="truncate text-sm font-medium tracking-widest text-muted-foreground">
+                  {MASCARA_SENSIVEL}
+                </p>
+              ) : copiavel ? (
+                <Tooltip className="block min-w-0 max-w-full">
+                  <TooltipTrigger>
+                    <button
+                      type="button"
+                      onClick={() => copiar(label, value as string)}
+                      className="block w-full truncate text-left text-sm font-medium hover:underline"
+                    >
+                      {value}
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="top">
+                    {copiado === label ? (
+                      <span className="flex items-center gap-1">
+                        <CheckCircle2 className="h-3.5 w-3.5 text-green-500" />
+                        Copiado!
+                      </span>
+                    ) : (
+                      'Copiar'
+                    )}
+                  </TooltipContent>
+                </Tooltip>
+              ) : (
+                <p className="truncate text-sm font-medium">{value}</p>
+              )}
+            </div>
+          </div>
+        )
+      })}
     </div>
   )
 }

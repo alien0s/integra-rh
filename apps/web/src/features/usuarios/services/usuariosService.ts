@@ -2,6 +2,7 @@ import { getToken } from '@/lib/auth'
 import type {
   AtividadeUsuario,
   AtualizarUsuarioInput,
+  CriarUsuarioInput,
   OpcaoSelecao,
   Usuario,
 } from '@/features/usuarios/types'
@@ -262,6 +263,25 @@ export const usuariosService = {
         message?: string
       } | null
       throw new Error(erro?.message ?? 'Falha ao atribuir gerente')
+    }
+
+    const json = (await response.json()) as ApiResponse<Usuario>
+    return { ...json.data, fotoUrl: resolverFotoUrl(json.data.fotoUrl) }
+  },
+
+  /** Cria um usuário com cadastro já completo (ADMIN) — ver CriarUsuarioDialog.tsx. */
+  async criarUsuario(input: CriarUsuarioInput): Promise<Usuario> {
+    const response = await fetch(`${API_URL}/usuarios`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      body: JSON.stringify(input),
+    })
+
+    if (!response.ok) {
+      const erro = (await response.json().catch(() => null)) as {
+        message?: string
+      } | null
+      throw new Error(erro?.message ?? 'Falha ao criar usuário')
     }
 
     const json = (await response.json()) as ApiResponse<Usuario>

@@ -12,4 +12,5 @@ export type {
   Papel,
   PapelInput,
   PapelForm,
+  ModuloVisibilidade,
 } from './Tabelas'

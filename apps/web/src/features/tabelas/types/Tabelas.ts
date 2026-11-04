@@ -36,21 +36,28 @@ export interface EntidadeForm extends Record<string, string> {
 }
 
 /**
- * Setor da empresa (tabela `setor`). Só nome — sem descrição. O gestor do setor
- * é definido pelo dialog "Atribuir gerente" (tela de Usuários).
+ * Setor da empresa (tabela `setor`) e suas chefias opcionais (coordenador e gerente).
  */
 export interface Setor {
   id: string
   nome: string
+  gestorId: string | null
+  gestorNome: string | null
+  managerId: string | null
+  managerNome: string | null
   createdAt: string
 }
 
 export interface SetorInput {
   nome: string
+  gestorId?: string | null
+  managerId?: string | null
 }
 
 export interface SetorForm extends Record<string, string> {
   nome: string
+  gestorId: string
+  managerId: string
 }
 
 /**
@@ -94,4 +101,21 @@ export interface PapelForm extends Record<string, string> {
   codigo: string
   nome: string
   nivel: string
+}
+
+/**
+ * Exceção de visibilidade/lançamento de um módulo (sidebar + rota) para um
+ * papel — tabela `modulos_visibilidade`. Ausência de uma combinação
+ * (moduloCodigo, roleId) nesta lista = visível e sem cadeado (defaults) — ver
+ * ModulosVisibilidadeAdmin.tsx. `liberadoAntecipado`: durante o lançamento
+ * beta, esse papel já usa o módulo sem cadeado (só importa pra quem já é
+ * `visivel`).
+ */
+export interface ModuloVisibilidade {
+  moduloCodigo: string
+  roleId: string
+  roleCodigo: string
+  roleNome: string
+  visivel: boolean
+  liberadoAntecipado: boolean
 }

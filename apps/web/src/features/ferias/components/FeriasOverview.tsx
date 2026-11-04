@@ -11,18 +11,19 @@ import type { RegistrarFeriasManualInput } from '@/features/ferias/services'
 import type { SolicitacaoFerias } from '@/features/ferias/types'
 import { EquipeCalendarDialog } from './EquipeCalendarDialog'
 import { ExcecoesFeriasDialog } from './ExcecoesFeriasDialog'
+import { FluxoAprovacaoDialog } from './FluxoAprovacaoDialog'
 import { FeriasRequestList } from './FeriasRequestList'
 import { FeriasTimeline } from './FeriasTimeline'
 import { ImprimirMapaFeriasButton } from './ImprimirMapaFeriasButton'
 import { RegistrarFeriasManualDialog } from './RegistrarFeriasManualDialog'
 import { VisaoGeralCiclo } from './VisaoGeralCiclo'
 
-type FiltroStatus = 'TODOS' | 'PENDENTE' | 'AGUARDANDO_DP'
+type FiltroStatus = 'TODOS' | 'PENDENTE' | 'AGUARDANDO_RH' | 'AGUARDANDO_ASSISTENTE'
 
 /** Papéis com permissão para registrar férias/folga manualmente (espelha a API). */
 const PAPEIS_QUE_PODEM_REGISTRAR_MANUAL = new Set(['ADMIN', 'RH', 'COORDENADOR DP'])
 /** Papéis que veem o painel de visão geral (DP só visualiza; COORD. DP e RH agem). */
-const PAPEIS_DP_RH = new Set(['ADMIN', 'RH', 'DP', 'COORDENADOR DP'])
+const PAPEIS_DP_RH = new Set(['ADMIN', 'RH', 'DP', 'COORDENADOR DP', 'ASSISTENTE'])
 /** Papéis que podem gerir as exceções de férias (fracionar/vender) — espelha a API. */
 const PAPEIS_EXCECOES = new Set(['ADMIN', 'DP', 'COORDENADOR DP'])
 
@@ -67,14 +68,17 @@ export function FeriasOverview({
   const ehDpRh = Boolean(papel && PAPEIS_DP_RH.has(papel))
   const podeRegistrarManual = Boolean(papel && PAPEIS_QUE_PODEM_REGISTRAR_MANUAL.has(papel))
   const podeGerirExcecoes = Boolean(papel && PAPEIS_EXCECOES.has(papel))
+  const ehAdmin = papel === 'ADMIN'
 
   const filtradas = useMemo(() => {
-    // Canceladas não aparecem na visão geral (nem cards nem linha do tempo).
-    const visiveis = solicitacoes.filter((s) => s.status !== 'CANCELADA')
+    // Coord. DP acompanha inclusive canceladas; demais papéis mantêm a visão operacional.
+    const visiveis = papel === 'COORDENADOR DP'
+      ? solicitacoes
+      : solicitacoes.filter((s) => s.status !== 'CANCELADA')
     return filtro === 'TODOS'
       ? visiveis
       : visiveis.filter((s) => s.status === filtro)
-  }, [solicitacoes, filtro])
+  }, [solicitacoes, filtro, papel])
 
   return (
     <div className="flex flex-col gap-6">
@@ -88,6 +92,7 @@ export function FeriasOverview({
               {ehGestor && <EquipeCalendarDialog />}
               {ehDpRh && <ImprimirMapaFeriasButton />}
               {podeGerirExcecoes && <ExcecoesFeriasDialog />}
+              {ehAdmin && <FluxoAprovacaoDialog />}
               {podeRegistrarManual && onRegistrarManual && (
                 <RegistrarFeriasManualDialog usuarios={usuarios} onRegistrar={onRegistrarManual} />
               )}
@@ -95,15 +100,18 @@ export function FeriasOverview({
           </div>
           <div className="flex flex-wrap items-center justify-between gap-3">
             <Tabs value={filtro} onValueChange={(value) => setFiltro(value as FiltroStatus)}>
-              <TabsList className="h-9">
+              <TabsList className="h-auto flex-wrap">
                 <TabsTrigger value="TODOS" className="px-4">
                   Todos
                 </TabsTrigger>
                 <TabsTrigger value="PENDENTE" className="px-4">
                   Aprovação gestor
                 </TabsTrigger>
-                <TabsTrigger value="AGUARDANDO_DP" className="px-4">
-                  Confirmação DP
+                <TabsTrigger value="AGUARDANDO_RH" className="px-4">
+                  Aprovação RH
+                </TabsTrigger>
+                <TabsTrigger value="AGUARDANDO_ASSISTENTE" className="px-4">
+                  Tesoureiro Assistente
                 </TabsTrigger>
               </TabsList>
             </Tabs>

@@ -48,11 +48,53 @@
   --color-sidebar-ring: var(--sidebar-ring);
   --font-sans: "Geist Variable", "Geist", ui-sans-serif, system-ui, sans-serif;
   --animate-shimmer: shimmer 1.5s infinite;
+  --animate-confetti-fall: confetti-fall 2.4s forwards;
+  --animate-emoji-bounce: emoji-bounce 1.1s ease-in-out infinite;
 }
 
 @keyframes shimmer {
   100% {
     transform: translateX(100%);
+  }
+}
+
+/* Emoji "vivo" (balança + pulsa) — substitui o 🤩 estático por uma imagem
+   (ver AniversariantesCard.tsx) com esse loop contínuo enquanto aparece. */
+@keyframes emoji-bounce {
+  0%,
+  100% {
+    transform: scale(1) rotate(-4deg);
+  }
+  50% {
+    transform: scale(1.12) rotate(4deg);
+  }
+}
+
+/* Explosão (0%→30%, ease-out: rápido no início e desacelera) saindo de trás
+   da foto, seguida de queda por gravidade (30%→100%, ease-in: acelera) até
+   sumir. Cada peça define seu próprio raio/ângulo via --confetti-x1/y1
+   (ponto da explosão) e --confetti-x2/y2 (ponto final, mais pra baixo). */
+@keyframes confetti-fall {
+  0% {
+    transform: translate(-50%, -50%) scale(0.3) rotate(0deg);
+    opacity: 0;
+    animation-timing-function: ease-out;
+  }
+  10% {
+    opacity: 1;
+  }
+  30% {
+    transform: translate(calc(-50% + var(--confetti-x1, 60px)), calc(-50% + var(--confetti-y1, 0px)))
+      scale(1) rotate(var(--confetti-r1, 140deg));
+    animation-timing-function: ease-in;
+  }
+  78% {
+    opacity: 1;
+  }
+  100% {
+    transform: translate(calc(-50% + var(--confetti-x2, 90px)), calc(-50% + var(--confetti-y2, 140px)))
+      scale(0.85) rotate(var(--confetti-r2, 320deg));
+    opacity: 0;
   }
 }
 

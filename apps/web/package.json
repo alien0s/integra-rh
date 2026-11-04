@@ -32,6 +32,7 @@
     "jspdf": "^4.2.1",
     "jspdf-autotable": "^5.0.8",
     "lucide-react": "^1.27.0",
+    "pdfjs-dist": "^6.4.299",
     "radix-ui": "^1.4.3",
     "react": "^19.0.0",
     "react-day-picker": "^10.0.1",

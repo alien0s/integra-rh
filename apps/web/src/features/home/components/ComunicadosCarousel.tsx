@@ -30,10 +30,10 @@ function useAnexoUrl(id: string, anexoTipo: ComunicadoItem['anexoTipo']) {
     let objectUrl: string | null = null
     let cancelado = false
 
-    comunicacaoService.buscarAnexoUrl(Number(id)).then((resultado) => {
+    comunicacaoService.baixarAnexo(Number(id)).then((blob) => {
       if (cancelado) return
-      objectUrl = resultado
-      setUrl(resultado)
+      objectUrl = URL.createObjectURL(blob)
+      setUrl(objectUrl)
     })
 
     return () => {

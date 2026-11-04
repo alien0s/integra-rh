@@ -19,7 +19,8 @@ const MESES = [
 /** Cor da barra por status (identidade do app, não do anexo). */
 const COR_BARRA: Record<StatusSolicitacaoFerias, string> = {
   PENDENTE: 'bg-amber-400 text-amber-950 dark:bg-amber-500/80 dark:text-amber-50',
-  AGUARDANDO_DP: 'bg-blue-500 text-white',
+  AGUARDANDO_RH: 'bg-blue-500 text-white',
+  AGUARDANDO_ASSISTENTE: 'bg-secondary text-secondary-foreground',
   AJUSTE_SUGERIDO: 'bg-orange-500 text-white',
   APROVADA: 'bg-emerald-500 text-white',
   REJEITADA: 'bg-red-400 text-white',

@@ -1,6 +1,8 @@
 import postgres from "postgres";
 
+import { responsavelPrimeiraEtapaSql, statusAposChefiaSql } from "./feriasFluxo.js";
 import { getDatabase } from "./database.js";
+import { buscarUltimaFeriasEsocial } from "./mssql.js";
 
 /**
  * Módulo de Férias/Folga — leitura e escrita das solicitações (tabela
@@ -25,7 +27,7 @@ export class SolicitacaoFeriasPendenteError extends Error {
 
 /**
  * Lançada quando o colaborador tenta pedir FÉRIAS de novo, mas já tem uma
- * solicitação APROVADA (confirmada pelo DP, ou lançada manualmente pelo RH)
+ * solicitação APROVADA (confirmada pelo Tesoureiro Assistente, ou lançada manualmente pelo RH)
  * com início dentro do MESMO período aquisitivo vigente (ciclo de 12 meses a
  * partir do aniversário de admissão) — o ciclo já foi usado. A rota converte
  * isso num 409, igual ao "já tem pendente".
@@ -183,16 +185,18 @@ function cicloAquisitivoVigente(
 /**
  * Status no contrato do front da "Visão geral":
  *   PENDENTE          → aguardando o gestor do setor (1ª etapa).
- *   AGUARDANDO_DP     → gestor aprovou; aguardando o DP confirmar (2ª etapa).
- *   AJUSTE_SUGERIDO   → DP devolveu ao colaborador uma sugestão de nova data
- *                       (em vez de confirmar); aguardando o colaborador aceitar.
- *   APROVADA          → DP confirmou (final).
- *   REJEITADA         → recusada pelo gestor ou pelo DP.
- *   CANCELADA         → cancelada (colaborador antes de confirmar, ou DP depois).
+ *   AGUARDANDO_RH     → aguarda análise do RH (exceto quando o solicitante é RH).
+ *   AGUARDANDO_ASSISTENTE → aguarda confirmação final (3ª etapa).
+ *   AJUSTE_SUGERIDO   → RH devolveu ao colaborador uma sugestão de nova data
+ *                       (em vez de aprovar); aguardando o colaborador aceitar.
+ *   APROVADA          → Tesoureiro Assistente confirmou (final).
+ *   REJEITADA         → recusada pelo gestor, RH ou Tesoureiro Assistente.
+ *   CANCELADA         → cancelada (colaborador antes de confirmar, ou RH/Assistente depois).
  */
 export type StatusFeriasFront =
   | "PENDENTE"
-  | "AGUARDANDO_DP"
+  | "AGUARDANDO_RH"
+  | "AGUARDANDO_ASSISTENTE"
   | "AJUSTE_SUGERIDO"
   | "APROVADA"
   | "REJEITADA"
@@ -208,8 +212,12 @@ export interface SolicitacaoFeriasDTO {
   tipo: "FERIAS" | "FOLGA";
   /** ID do colaborador solicitante (para o front saber se é do próprio usuário). */
   userId: string;
-  /** Papel do solicitante (define quem confirma: COORDENADOR DP ou RH). */
+  /** Papel do solicitante (RH solicitante dispensa sua etapa de revisão). */
   solicitantePapel?: string;
+  /** Responsável efetivo da 1ª etapa, calculado a partir da chefia vigente. */
+  responsavelPrimeiraEtapaId?: string;
+  /** Solicitante RH segue direto ao Assistente, sem registrar aprovação fictícia. */
+  etapaRhDispensada: boolean;
   funcionarioNome: string;
   matricula: string;
   cicloFerias: string;
@@ -230,12 +238,15 @@ export interface SolicitacaoFeriasDTO {
   /** Progresso da aprovação — quem aprovou/confirmou/cancelou e quando. */
   aprovadoGestorNome?: string;
   aprovadoGestorEm?: string;
+  aprovadoRhNome?: string;
+  aprovadoRhEm?: string;
+  /** Nome de quem decidiu ao final (campo legado do contrato). */
   aprovadoDpNome?: string;
   decididoEm?: string;
   canceladoNome?: string;
   canceladoEm?: string;
   motivoCancelamento?: string;
-  /** Ajuste sugerido pelo DP (status AJUSTE_SUGERIDO) — período proposto + motivo. */
+  /** Ajuste sugerido pelo RH (status AJUSTE_SUGERIDO) — período proposto + motivo. */
   periodoSugerido?: string;
   ajusteSugeridoPorNome?: string;
   ajusteSugeridoEm?: string;
@@ -253,12 +264,12 @@ export interface MinhaSolicitacaoDTO {
   tipoBase: "FERIAS" | "FOLGA";
   /** Dias vendidos (abono) nesse pedido, 0-10 — ver DIAS_VENDA_MAXIMO. */
   diasVendidos: number;
-  status: "PENDENTE" | "APROVADO_GESTOR" | "AJUSTE_SUGERIDO" | "APROVADO" | "RECUSADO" | "CANCELADO";
+  status: "PENDENTE" | "APROVADO_GESTOR" | "APROVADO_RH" | "AJUSTE_SUGERIDO" | "APROVADO" | "RECUSADO" | "CANCELADO";
   /** SOLICITACAO (pedido normal) ou REGISTRO_MANUAL (lançado pelo RH/Admin). */
   origem: OrigemFerias;
   /** Motivo, quando RECUSADO. */
   motivoRejeicao?: string;
-  /** Ajuste sugerido pelo DP (status AJUSTE_SUGERIDO) — período proposto + motivo. */
+  /** Ajuste sugerido pelo RH (status AJUSTE_SUGERIDO) — período proposto + motivo. */
   periodoSugerido?: string;
   motivoAjuste?: string;
 }
@@ -268,7 +279,7 @@ export interface FeriasResumoDTO {
   diasDisponiveis: number;
   diasAgendados: number;
   periodoAquisitivo: string;
-  /** Exceções liberadas pelo DP pra esse colaborador — ver 024_ferias_excecoes.sql. */
+  /** Exceções liberadas pelo RH pra esse colaborador — ver 024_ferias_excecoes.sql. */
   podeFracionarFerias: boolean;
   podeVenderFerias: boolean;
   /**
@@ -279,6 +290,15 @@ export interface FeriasResumoDTO {
    * pode escolher 10/15 dias pela aba "Fracionar em".
    */
   exigeTrintaDias: boolean;
+  /**
+   * Próxima (ou em andamento) férias já APROVADA do colaborador, pro card do
+   * dashboard (/home) — null quando não há nenhuma aprovada com fim ainda não
+   * passado (mesmo que exista uma solicitação pendente, ainda não decidida).
+   */
+  proximaAprovada: {
+    diasParaInicio: number;
+    periodo: string;
+  } | null;
 }
 
 /** Entrada para criar uma solicitação. */
@@ -316,6 +336,7 @@ const DIAS_VENDA_MAXIMO = 10;
 type StatusDB =
   | "PENDENTE"
   | "APROVADO_GESTOR"
+  | "APROVADO_RH"
   | "AJUSTE_SUGERIDO"
   | "APROVADO"
   | "RECUSADO"
@@ -337,11 +358,15 @@ interface LinhaSolicitacao {
   userId: string;
   setorId: string | null;
   solicitantePapel: string | null;
+  responsavelPrimeiraEtapaId: string | null;
   funcionarioNome: string;
+  funcionarioEmail: string;
   avatarUrl: string | null;
   data_admissao: unknown;
   aprovadoGestorNome: string | null;
   aprovadoGestorEm: string | null;
+  aprovadoRhNome: string | null;
+  aprovadoRhEm: string | null;
   aprovadoDpNome: string | null;
   decididoEm: string | null;
   canceladoNome: string | null;
@@ -361,19 +386,23 @@ const SELECT_SOLICITACAO = (sql: ReturnType<typeof postgres>) => sql`
          f.motivo_recusa,
          f.origem,
          to_char(f.aprovado_gestor_em, 'DD/MM/YYYY') AS "aprovadoGestorEm",
+         to_char(f.aprovado_rh_em, 'DD/MM/YYYY') AS "aprovadoRhEm",
          to_char(f.decidido_em,        'DD/MM/YYYY') AS "decididoEm",
          to_char(f.cancelado_em,       'DD/MM/YYYY') AS "canceladoEm",
          f.motivo_cancelamento,
          f.data_inicio_sugerida, f.data_fim_sugerida,
          to_char(f.ajuste_sugerido_em, 'DD/MM/YYYY') AS "ajusteSugeridoEm",
          f.motivo_ajuste,
+         ${responsavelPrimeiraEtapaSql(sql)} AS "responsavelPrimeiraEtapaId",
          u.id            AS "userId",
          u.setor_id      AS "setorId",
          ru.codigo       AS "solicitantePapel",
          u.nome          AS "funcionarioNome",
+         u.email         AS "funcionarioEmail",
          u.avatar_url    AS "avatarUrl",
          u.data_admissao AS data_admissao,
          ag.nome         AS "aprovadoGestorNome",
+         rh.nome         AS "aprovadoRhNome",
          ap.nome         AS "aprovadoDpNome",
          cx.nome         AS "canceladoNome",
          aj.nome         AS "ajusteSugeridoPorNome"
@@ -381,6 +410,7 @@ const SELECT_SOLICITACAO = (sql: ReturnType<typeof postgres>) => sql`
   JOIN users u ON u.id = f.user_id
   LEFT JOIN roles ru ON ru.id = u.role_id
   LEFT JOIN users ag ON ag.id = f.aprovado_gestor_por
+  LEFT JOIN users rh ON rh.id = f.aprovado_rh_por
   LEFT JOIN users ap ON ap.id = f.aprovado_por
   LEFT JOIN users cx ON cx.id = f.cancelado_por
   LEFT JOIN users aj ON aj.id = f.ajuste_sugerido_por
@@ -388,7 +418,8 @@ const SELECT_SOLICITACAO = (sql: ReturnType<typeof postgres>) => sql`
 
 /** DB status → status do contrato do front (Visão geral). */
 function statusParaFront(status: StatusDB): StatusFeriasFront {
-  if (status === "APROVADO_GESTOR") return "AGUARDANDO_DP";
+  if (status === "APROVADO_GESTOR") return "AGUARDANDO_RH";
+  if (status === "APROVADO_RH") return "AGUARDANDO_ASSISTENTE";
   if (status === "AJUSTE_SUGERIDO") return "AJUSTE_SUGERIDO";
   if (status === "APROVADO") return "APROVADA";
   if (status === "RECUSADO") return "REJEITADA";
@@ -405,6 +436,8 @@ function paraDTO(linha: LinhaSolicitacao): SolicitacaoFeriasDTO {
     tipo: linha.tipo,
     userId: linha.userId,
     solicitantePapel: linha.solicitantePapel ?? undefined,
+    responsavelPrimeiraEtapaId: linha.responsavelPrimeiraEtapaId ?? undefined,
+    etapaRhDispensada: linha.origem === "SOLICITACAO" && linha.solicitantePapel === "RH" && !linha.aprovadoRhEm,
     funcionarioNome: linha.funcionarioNome,
     matricula: "",
     cicloFerias: formatarCiclo(paraData(linha.data_admissao)),
@@ -423,6 +456,8 @@ function paraDTO(linha: LinhaSolicitacao): SolicitacaoFeriasDTO {
     origem: linha.origem,
     aprovadoGestorNome: linha.aprovadoGestorNome ?? undefined,
     aprovadoGestorEm: linha.aprovadoGestorEm ?? undefined,
+    aprovadoRhNome: linha.aprovadoRhNome ?? undefined,
+    aprovadoRhEm: linha.aprovadoRhEm ?? undefined,
     aprovadoDpNome: linha.aprovadoDpNome ?? undefined,
     decididoEm: linha.decididoEm ?? undefined,
     canceladoNome: linha.canceladoNome ?? undefined,
@@ -435,7 +470,7 @@ function paraDTO(linha: LinhaSolicitacao): SolicitacaoFeriasDTO {
   };
 }
 
-/** Período sugerido pelo DP formatado igual a `periodo` (ou undefined, se não houver). */
+/** Período sugerido pelo RH formatado igual a `periodo` (ou undefined, se não houver). */
 function periodoSugerido(linha: LinhaSolicitacao): string | undefined {
   const inicio = paraData(linha.data_inicio_sugerida);
   const fim = paraData(linha.data_fim_sugerida);
@@ -451,13 +486,24 @@ function periodoSugerido(linha: LinhaSolicitacao): string | undefined {
  */
 export async function listSolicitacoes(
   gestorId?: string,
+  incluirHistoricoCompleto = false,
 ): Promise<SolicitacaoFeriasDTO[]> {
   const sql = getDatabase();
   const linhas = await sql<LinhaSolicitacao[]>`
     ${SELECT_SOLICITACAO(sql)}
+    -- Mantém pedidos ativos/futuros e o último período passado aprovado
+    -- de cada pessoa. O histórico pessoal continua completo.
+    WHERE (${incluirHistoricoCompleto} OR f.data_fim >= CURRENT_DATE OR f.status NOT IN ('APROVADO', 'RECUSADO', 'CANCELADO')
+      OR f.id = (
+        SELECT ultima.id FROM ferias_solicitacoes ultima
+        WHERE ultima.user_id = f.user_id AND ultima.tipo = 'FERIAS'
+          AND ultima.status = 'APROVADO' AND ultima.data_fim < CURRENT_DATE
+        ORDER BY ultima.data_fim DESC, ultima.data_inicio DESC, ultima.created_at DESC, ultima.id DESC
+        LIMIT 1
+      ))
     ${
       gestorId
-        ? sql`WHERE u.setor_id IN (SELECT id FROM setor WHERE gestor_id = ${gestorId})`
+        ? sql`AND u.setor_id IN (SELECT id FROM setor WHERE gestor_id = ${gestorId})`
         : sql``
     }
     ORDER BY f.created_at DESC
@@ -543,6 +589,25 @@ export async function getResumoFerias(userId: string): Promise<FeriasResumoDTO> 
   `;
   const diasAgendados = agendados?.total ?? 0;
 
+  // Próxima férias aprovada (card do dashboard) — a mais próxima que ainda
+  // não terminou, aprovada ou em andamento. Só FERIAS (o card fala "você sai
+  // de férias", não cobre FOLGA avulsa).
+  const [proxima] = await sql<{ inicio: string; fim: string }[]>`
+    SELECT to_char(data_inicio, 'YYYY-MM-DD') AS inicio,
+           to_char(data_fim, 'YYYY-MM-DD')    AS fim
+    FROM ferias_solicitacoes
+    WHERE user_id = ${userId} AND tipo = 'FERIAS' AND status = 'APROVADO'
+      AND data_fim >= CURRENT_DATE
+    ORDER BY data_inicio ASC
+    LIMIT 1
+  `;
+  const proximaAprovada = proxima
+    ? {
+        diasParaInicio: Math.max(0, diasAte(proxima.inicio)),
+        periodo: formatarPeriodo(dataLocalDeISO(proxima.inicio), dataLocalDeISO(proxima.fim)),
+      }
+    : null;
+
   return {
     diasDisponiveis: Math.max(0, DIAS_FERIAS_CICLO - diasAgendados),
     diasAgendados,
@@ -552,54 +617,40 @@ export async function getResumoFerias(userId: string): Promise<FeriasResumoDTO> 
     periodoAquisitivo: ciclo
       ? `${formatarPeriodoResumo(ciclo.inicio)} - ${formatarPeriodoResumo(ciclo.fim)}`
       : "—",
+    proximaAprovada,
   };
 }
 
-/** "07 Jul 2026" a partir de "YYYY-MM-DD". */
+/** "7 Jul 2026" a partir de "YYYY-MM-DD". */
 function formatarPeriodoResumo(iso: string): string {
   const d = new Date(iso);
-  const dia = String(d.getDate()).padStart(2, "0");
   const mes = MESES_ABREV[d.getMonth()];
   const mesCap = mes.charAt(0).toUpperCase() + mes.slice(1);
-  return `${dia} ${mesCap} ${d.getFullYear()}`;
+  return `${d.getDate()} ${mesCap} ${d.getFullYear()}`;
 }
 
 /* ── Escrita ───────────────────────────────────────────────────────────── */
 
-/** Gestor do setor do usuário (setor.gestor_id), ou null se não houver. */
-async function getGestorDoSetorDoUsuario(
+type StatusInicialSolicitacao = "PENDENTE" | "APROVADO_GESTOR" | "APROVADO_RH";
+
+/** Roteamento compartilhado entre novo pedido e reinício após ajuste de datas. */
+async function getRoteamentoInicialSolicitacao(
   sql: ReturnType<typeof postgres>,
   userId: string,
-): Promise<string | null> {
-  const [row] = await sql<{ gestor_id: string | null }[]>`
-    SELECT s.gestor_id
-    FROM users u
-    JOIN setor s ON s.id = u.setor_id
-    WHERE u.id = ${userId}
-    LIMIT 1
+): Promise<{ gestorId: string | null; statusInicial: StatusInicialSolicitacao }> {
+  const [row] = await sql<{
+    responsavelId: string | null;
+    statusSemChefia: "APROVADO_GESTOR" | "APROVADO_RH";
+  }[]>`
+    SELECT ${responsavelPrimeiraEtapaSql(sql)} AS "responsavelId",
+           ${statusAposChefiaSql(sql)} AS "statusSemChefia"
+    FROM users u WHERE u.id = ${userId}
   `;
-  return row?.gestor_id ?? null;
-}
-
-/**
- * `userId` é o gestor do setor do solicitante desta solicitação? Usado para
- * autorizar a 1ª etapa (aprovar/recusar como gestor) — ADMIN é checado à parte
- * na rota.
- */
-export async function ehGestorDaSolicitacao(
-  id: string,
-  userId: string,
-): Promise<boolean> {
-  const sql = getDatabase();
-  const [row] = await sql<{ ok: number }[]>`
-    SELECT 1 AS ok
-    FROM ferias_solicitacoes f
-    JOIN users u ON u.id = f.user_id
-    JOIN setor s ON s.id = u.setor_id
-    WHERE f.id = ${id} AND s.gestor_id = ${userId}
-    LIMIT 1
-  `;
-  return Boolean(row);
+  const gestorId = row?.responsavelId ?? null;
+  return {
+    gestorId,
+    statusInicial: gestorId ? "PENDENTE" : row?.statusSemChefia ?? "APROVADO_GESTOR",
+  };
 }
 
 /**
@@ -630,18 +681,19 @@ async function validarInicioNaoFeriado(
 /** Resultado de criarSolicitacao — inclui o roteamento da 1ª notificação. */
 export interface CriarSolicitacaoResultado {
   solicitacao: SolicitacaoFeriasDTO;
-  /** Status inicial: PENDENTE (aguarda gestor) ou APROVADO_GESTOR (fallback). */
-  statusInicial: "PENDENTE" | "APROVADO_GESTOR";
-  /** Gestor a notificar; null quando caiu no fallback (notificar o DP). */
+  /** Status inicial: chefia, RH ou Assistente (solicitante RH sem chefia). */
+  statusInicial: StatusInicialSolicitacao;
+  /** Gestor a notificar; null quando caiu no fallback (notificar RH ou Assistente). */
   gestorId: string | null;
 }
 
 /**
  * Cria uma solicitação e devolve o DTO + o roteamento da aprovação.
  *
- * Fluxo sempre em 2 etapas (gestor → DP). Fallback: se o setor do solicitante
+ * Fluxo em 3 etapas (gestor → RH → Tesoureiro Assistente). Fallback: se o setor do solicitante
  * não tem gestor, ou o próprio solicitante É o gestor do setor, a 1ª etapa é
- * pulada — nasce em APROVADO_GESTOR e o DP faz a confirmação.
+ * dispensada — segue ao RH (APROVADO_GESTOR), ou ao Assistente
+ * (APROVADO_RH) quando o próprio solicitante é RH.
  */
 export async function criarSolicitacao(
   userId: string,
@@ -690,12 +742,12 @@ export async function criarSolicitacao(
     }
 
     // Só pode ter UMA solicitação de FÉRIAS em andamento por vez (PENDENTE,
-    // APROVADO_GESTOR ou AJUSTE_SUGERIDO) — vale igual pra quem fraciona: a
+    // APROVADO_GESTOR, APROVADO_RH ou AJUSTE_SUGERIDO) — vale igual pra quem fraciona: a
     // 2ª leva só pode ser pedida depois que a 1ª foi de fato APROVADA.
     const [pendente] = await sql<{ id: string }[]>`
       SELECT id FROM ferias_solicitacoes
       WHERE user_id = ${userId} AND tipo = 'FERIAS'
-        AND status IN ('PENDENTE', 'APROVADO_GESTOR', 'AJUSTE_SUGERIDO')
+        AND status IN ('PENDENTE', 'APROVADO_GESTOR', 'APROVADO_RH', 'AJUSTE_SUGERIDO')
       LIMIT 1
     `;
     if (pendente) {
@@ -758,11 +810,7 @@ export async function criarSolicitacao(
   }
 
   // Roteamento da 1ª etapa: precisa passar pelo gestor?
-  const gestorId = await getGestorDoSetorDoUsuario(sql, userId);
-  const pulaGestor = gestorId === null || gestorId === userId;
-  const statusInicial: "PENDENTE" | "APROVADO_GESTOR" = pulaGestor
-    ? "APROVADO_GESTOR"
-    : "PENDENTE";
+  const { gestorId, statusInicial } = await getRoteamentoInicialSolicitacao(sql, userId);
 
   const [criada] = await sql<{ id: string }[]>`
     INSERT INTO ferias_solicitacoes (
@@ -783,7 +831,7 @@ export async function criarSolicitacao(
   return {
     solicitacao: paraDTO(linha),
     statusInicial,
-    gestorId: pulaGestor ? null : gestorId,
+    gestorId,
   };
 }
 
@@ -842,6 +890,87 @@ export async function registrarFeriasManual(
   return paraDTO(linha);
 }
 
+export interface ResultadoSincronizacaoFerias {
+  inseridos: number;
+  atualizados: number;
+  ignorados: number;
+}
+
+/**
+ * Importa somente o último período passado do APS, sem excluir histórico.
+ * Eventos repetidos não duplicam registros; retificações atualizam somente
+ * a própria linha importada, nunca solicitações ou lançamentos manuais.
+ * O chamador abre a transação; no login, comSavepoint isola falhas do APS.
+ */
+export async function sincronizarFeriasLegado(
+  userId: string,
+): Promise<ResultadoSincronizacaoFerias> {
+  const sql = getDatabase();
+  const [u] = await sql<{ cpf: string | null; data_admissao: unknown }[]>`
+    SELECT cpf, data_admissao FROM users WHERE id = ${userId} LIMIT 1
+  `;
+  const cpf = u?.cpf?.replace(/\D/g, "") ?? "";
+  const ignorado = { inseridos: 0, atualizados: 0, ignorados: 1 };
+  if (cpf.length !== 11) return ignorado;
+
+  const evento = await buscarUltimaFeriasEsocial(cpf);
+  if (!evento?.dataInicio || !evento.dataFim || evento.dataFim < evento.dataInicio) return ignorado;
+  // Proteção adicional: nunca importa férias futuras ou em andamento.
+  const [hoje] = await sql<{ data: string }[]>`SELECT to_char(CURRENT_DATE, 'YYYY-MM-DD') AS data`;
+  if (evento.dataFim >= hoje.data) return ignorado;
+
+  // Serializa sincronizações simultâneas da mesma pessoa (login/script).
+  await sql`SELECT id FROM users WHERE id = ${userId} FOR UPDATE`;
+  const [existente] = await sql<{ id: string; user_id: string; origem: string; status: string }[]>`
+    SELECT id, user_id, origem, status FROM ferias_solicitacoes
+    WHERE legado_evento_id = ${evento.idEvento}
+  `;
+  if (existente && (existente.user_id !== userId || existente.origem !== 'REGISTRO_MANUAL' || existente.status !== 'APROVADO')) {
+    return ignorado;
+  }
+
+  const [sobreposta] = await sql<{ id: string }[]>`
+    SELECT id FROM ferias_solicitacoes
+    WHERE user_id = ${userId} AND tipo = 'FERIAS'
+      AND (${existente?.id ?? null}::uuid IS NULL OR id <> ${existente?.id ?? null})
+      AND status NOT IN ('RECUSADO', 'CANCELADO')
+      AND daterange(data_inicio, data_fim, '[]')
+          && daterange(${evento.dataInicio}::date, ${evento.dataFim}::date, '[]')
+    LIMIT 1
+  `;
+  if (sobreposta) return ignorado;
+
+  const dias = Math.round(
+    (new Date(evento.dataFim).getTime() - new Date(evento.dataInicio).getTime()) / 86_400_000,
+  ) + 1;
+  const ciclo = cicloAquisitivoVigente(paraData(u.data_admissao), new Date(evento.dataInicio));
+  const observacoes = `Importado automaticamente do eSocial (evento #${evento.idEvento}).`;
+  if (existente) {
+    const atualizado = await sql`
+      UPDATE ferias_solicitacoes
+      SET data_inicio = ${evento.dataInicio}, data_fim = ${evento.dataFim}, dias = ${dias},
+          periodo_aquisitivo_inicio = ${ciclo?.inicio ?? null},
+          periodo_aquisitivo_fim = ${ciclo?.fim ?? null}, observacoes = ${observacoes}
+      WHERE id = ${existente.id}
+        AND (data_inicio IS DISTINCT FROM ${evento.dataInicio}::date
+          OR data_fim IS DISTINCT FROM ${evento.dataFim}::date OR dias IS DISTINCT FROM ${dias})
+    `;
+    return atualizado.count > 0 ? { inseridos: 0, atualizados: 1, ignorados: 0 } : ignorado;
+  }
+  const inserido = await sql`
+    INSERT INTO ferias_solicitacoes (
+      user_id, tipo, data_inicio, data_fim, dias, observacoes,
+      periodo_aquisitivo_inicio, periodo_aquisitivo_fim,
+      status, origem, confirmado, legado_evento_id
+    ) VALUES (
+      ${userId}, 'FERIAS', ${evento.dataInicio}, ${evento.dataFim}, ${dias}, ${observacoes},
+      ${ciclo?.inicio ?? null}, ${ciclo?.fim ?? null},
+      'APROVADO', 'REGISTRO_MANUAL', TRUE, ${evento.idEvento}
+    ) ON CONFLICT (legado_evento_id) DO NOTHING
+  `;
+  return inserido.count > 0 ? { inseridos: 1, atualizados: 0, ignorados: 0 } : ignorado;
+}
+
 /** Recarrega e mapeia a solicitação após um UPDATE. */
 async function recarregarDTO(
   sql: ReturnType<typeof postgres>,
@@ -854,7 +983,7 @@ async function recarregarDTO(
 }
 
 /**
- * 1ª etapa — o GESTOR do setor aprova: PENDENTE → APROVADO_GESTOR.
+ * 1ª etapa — chefia aprova: PENDENTE → RH ou Assistente (solicitante RH).
  * Retorna null se a solicitação não existir ou não estiver mais PENDENTE.
  */
 export async function aprovarSolicitacao(
@@ -863,37 +992,51 @@ export async function aprovarSolicitacao(
 ): Promise<SolicitacaoFeriasDTO | null> {
   const sql = getDatabase();
   const atualizado = await sql`
-    UPDATE ferias_solicitacoes
-    SET status = 'APROVADO_GESTOR',
+    UPDATE ferias_solicitacoes f
+    SET status = ${statusAposChefiaSql(sql)},
         aprovado_gestor_por = ${gestorId}, aprovado_gestor_em = NOW(),
         motivo_recusa = NULL
-    WHERE id = ${id} AND status = 'PENDENTE'
+    FROM users u
+    WHERE f.id = ${id} AND f.user_id = u.id AND f.status = 'PENDENTE'
   `;
   if (atualizado.count === 0) return null;
   return recarregarDTO(sql, id);
 }
 
-/**
- * 2ª etapa — o DP confirma: APROVADO_GESTOR → APROVADO (confirmado=TRUE).
- * Retorna null se não existir ou não estiver em APROVADO_GESTOR.
- */
-export async function confirmarSolicitacao(
+/** 2ª etapa: RH analisa os demais solicitantes e encaminha ao Assistente. */
+export async function aprovarRhSolicitacao(
   id: string,
-  dpId: string,
+  rhId: string,
 ): Promise<SolicitacaoFeriasDTO | null> {
   const sql = getDatabase();
   const atualizado = await sql`
     UPDATE ferias_solicitacoes
-    SET status = 'APROVADO', aprovado_por = ${dpId},
-        decidido_em = NOW(), confirmado = TRUE, motivo_recusa = NULL
+    SET status = 'APROVADO_RH', aprovado_rh_por = ${rhId},
+        aprovado_rh_em = NOW(), motivo_recusa = NULL
     WHERE id = ${id} AND status = 'APROVADO_GESTOR'
   `;
   if (atualizado.count === 0) return null;
   return recarregarDTO(sql, id);
 }
 
+/** Etapa final: Assistente confirma, após o RH ou o desvio do solicitante RH. */
+export async function confirmarSolicitacao(
+  id: string,
+  assistenteId: string,
+): Promise<SolicitacaoFeriasDTO | null> {
+  const sql = getDatabase();
+  const atualizado = await sql`
+    UPDATE ferias_solicitacoes
+    SET status = 'APROVADO', aprovado_por = ${assistenteId},
+        decidido_em = NOW(), confirmado = TRUE, motivo_recusa = NULL
+    WHERE id = ${id} AND status = 'APROVADO_RH'
+  `;
+  if (atualizado.count === 0) return null;
+  return recarregarDTO(sql, id);
+}
+
 /**
- * Deslocamento máximo (em dias, pra antes ou depois) que o DP pode sugerir
+ * Deslocamento máximo (em dias, pra antes ou depois) que o RH pode sugerir
  * pro início do período — mesmo valor do CHECK `ferias_ajuste_dentro_do_limite`
  * (017_ferias_ajuste_dp.sql). Validado aqui também pra devolver uma mensagem
  * amigável em vez de deixar estourar a constraint do banco.
@@ -901,7 +1044,7 @@ export async function confirmarSolicitacao(
 const LIMITE_AJUSTE_DP_DIAS = 5;
 
 /**
- * 2ª etapa (alternativa à confirmação) — o DP devolve ao colaborador uma
+ * 2ª etapa (alternativa à aprovação) — o RH devolve ao colaborador uma
  * sugestão de novo início, deslocando o período em até LIMITE_AJUSTE_DP_DIAS
  * dias (mantém a mesma duração): APROVADO_GESTOR → AJUSTE_SUGERIDO.
  * Retorna null se não existir ou não estiver em APROVADO_GESTOR.
@@ -951,18 +1094,18 @@ export async function sugerirAjusteSolicitacao(
 /** Resultado de aceitarAjusteSolicitacao — inclui o roteamento da notificação. */
 export interface AceitarAjusteResultado {
   solicitacao: SolicitacaoFeriasDTO;
-  /** Status resultante: PENDENTE (aguarda gestor) ou APROVADO_GESTOR (fallback). */
-  statusInicial: "PENDENTE" | "APROVADO_GESTOR";
-  /** Gestor a notificar; null quando caiu no fallback (notificar o DP). */
+  /** Status resultante conforme chefia e papel do solicitante. */
+  statusInicial: StatusInicialSolicitacao;
+  /** Gestor a notificar; null quando caiu no fallback (notificar RH ou Assistente). */
   gestorId: string | null;
 }
 
 /**
- * O colaborador aceita o ajuste sugerido pelo DP: aplica a data sugerida
+ * O colaborador aceita o ajuste sugerido pelo RH: aplica a data sugerida
  * como o período oficial e REINICIA o fluxo de aprovação (mesmo fallback de
- * criarSolicitacao — sem gestor no setor, ou o próprio solicitante é o
- * gestor, pula direto pra APROVADO_GESTOR). Limpa os campos da 1ª etapa
- * também, já que o gestor precisa aprovar de novo o período ajustado.
+ * criarSolicitacao: passa pela chefia quando houver; sem chefia segue ao
+ * RH, ou ao Assistente quando o solicitante é RH. Limpa as aprovações
+ * anteriores para que o novo período passe pelas etapas aplicáveis.
  *
  * Não existe uma "recusa do ajuste" — se o colaborador não concorda, cancela
  * a solicitação inteira (ação já existente).
@@ -993,11 +1136,7 @@ export async function aceitarAjusteSolicitacao(
   if (!novoInicio || !novoFim) return null;
   const dias = Math.round((novoFim.getTime() - novoInicio.getTime()) / 86_400_000) + 1;
 
-  const gestorId = await getGestorDoSetorDoUsuario(sql, userId);
-  const pulaGestor = gestorId === null || gestorId === userId;
-  const statusInicial: "PENDENTE" | "APROVADO_GESTOR" = pulaGestor
-    ? "APROVADO_GESTOR"
-    : "PENDENTE";
+  const { gestorId, statusInicial } = await getRoteamentoInicialSolicitacao(sql, userId);
 
   const atualizado = await sql`
     UPDATE ferias_solicitacoes
@@ -1007,31 +1146,34 @@ export async function aceitarAjusteSolicitacao(
         status = ${statusInicial},
         data_inicio_sugerida = NULL, data_fim_sugerida = NULL,
         ajuste_sugerido_por = NULL, ajuste_sugerido_em = NULL, motivo_ajuste = NULL,
-        aprovado_gestor_por = NULL, aprovado_gestor_em = NULL
+        aprovado_gestor_por = NULL, aprovado_gestor_em = NULL,
+        aprovado_rh_por = NULL, aprovado_rh_em = NULL,
+        aprovado_por = NULL, decidido_em = NULL, confirmado = FALSE, motivo_recusa = NULL
     WHERE id = ${id} AND status = 'AJUSTE_SUGERIDO'
   `;
   if (atualizado.count === 0) return null;
 
   const dto = await recarregarDTO(sql, id);
   if (!dto) return null;
-  return { solicitacao: dto, statusInicial, gestorId: pulaGestor ? null : gestorId };
+  return { solicitacao: dto, statusInicial, gestorId };
 }
 
 /**
  * Recusa com justificativa. Pode ser feita pelo gestor (em PENDENTE) ou pelo
- * DP (em APROVADO_GESTOR). Retorna o DTO ou null se não estava recusável.
+ * RH (APROVADO_GESTOR) ou Tesoureiro Assistente (APROVADO_RH). Retorna o DTO ou null se não estava recusável.
  */
 export async function recusarSolicitacao(
   id: string,
   quemId: string,
   motivo: string,
+  statusEsperado: "PENDENTE" | "APROVADO_GESTOR" | "APROVADO_RH",
 ): Promise<SolicitacaoFeriasDTO | null> {
   const sql = getDatabase();
   const atualizado = await sql`
     UPDATE ferias_solicitacoes
     SET status = 'RECUSADO', aprovado_por = ${quemId},
         decidido_em = NOW(), motivo_recusa = ${motivo}
-    WHERE id = ${id} AND status IN ('PENDENTE', 'APROVADO_GESTOR')
+    WHERE id = ${id} AND status = ${statusEsperado}
   `;
   if (atualizado.count === 0) return null;
   return recarregarDTO(sql, id);
@@ -1044,14 +1186,14 @@ export type ResultadoCancelamento =
 
 /**
  * Cancela uma solicitação:
- *   - o COLABORADOR dono cancela enquanto PENDENTE ou APROVADO_GESTOR;
- *   - DP/ADMIN cancela também quando já APROVADO.
- * `ehDpOuAdmin` vem da rota (papel do usuário). Grava quem/quando/motivo.
+ *   - o COLABORADOR dono cancela enquanto PENDENTE, APROVADO_GESTOR, APROVADO_RH ou AJUSTE_SUGERIDO;
+ *   - RH/Assistente/ADMIN cancela também quando já APROVADO.
+ * `ehGestaoOuAdmin` vem da rota (papel do usuário). Grava quem/quando/motivo.
  */
 export async function cancelarSolicitacao(
   id: string,
   quemId: string,
-  ehDpOuAdmin: boolean,
+  ehGestaoOuAdmin: boolean,
   motivo: string | null,
 ): Promise<ResultadoCancelamento> {
   const sql = getDatabase();
@@ -1064,14 +1206,15 @@ export async function cancelarSolicitacao(
   const emAndamento =
     atual.status === "PENDENTE" ||
     atual.status === "APROVADO_GESTOR" ||
-    // Se o colaborador não concorda com o ajuste sugerido pelo DP, cancela a
+    atual.status === "APROVADO_RH" ||
+    // Se o colaborador não concorda com o ajuste sugerido pelo RH, cancela a
     // solicitação inteira — não existe uma "recusa do ajuste" separada.
     atual.status === "AJUSTE_SUGERIDO";
 
-  // Dono cancela enquanto em andamento; DP/ADMIN cancela em andamento ou já aprovado.
+  // Dono cancela enquanto em andamento; RH/Assistente/ADMIN cancela em andamento ou já aprovado.
   const podeDono = ehDono && emAndamento;
-  const podeDp = ehDpOuAdmin && (emAndamento || atual.status === "APROVADO");
-  if (!podeDono && !podeDp) return { ok: false, motivo: "SEM_PERMISSAO" };
+  const podeGestao = ehGestaoOuAdmin && (emAndamento || atual.status === "APROVADO");
+  if (!podeDono && !podeGestao) return { ok: false, motivo: "SEM_PERMISSAO" };
 
   await sql`
     UPDATE ferias_solicitacoes
@@ -1095,19 +1238,36 @@ export type ResultadoExclusao =
  * só depois de CANCELADA (mesma trava aplicada no front — precisa cancelar
  * antes de poder excluir) — evita apagar histórico de algo ainda em
  * andamento ou já aprovado/recusado sem passar por cancelamento primeiro.
+ *
+ * ADMIN pula as duas travas (dono e status) — útil pra limpar um lançamento
+ * errado (manual ou importado) sem precisar cancelar primeiro, mesmo que não
+ * seja o próprio. A policy de RLS (027_ferias_excluir_admin.sql) já libera
+ * ADMIN pra apagar qualquer linha; esta checagem aqui é só a regra de
+ * negócio em cima disso (mesma divisão de responsabilidade do resto do
+ * arquivo: RLS decide QUEM, a API decide EM QUE CONDIÇÃO).
  */
 export async function excluirSolicitacao(
   id: string,
   userId: string,
+  ehAdmin: boolean,
 ): Promise<ResultadoExclusao> {
   const sql = getDatabase();
   const [atual] = await sql<{ user_id: string; status: StatusDB }[]>`
     SELECT user_id, status FROM ferias_solicitacoes WHERE id = ${id} LIMIT 1
   `;
   if (!atual) return { ok: false, motivo: "NAO_ENCONTRADA" };
-  if (atual.user_id !== userId) return { ok: false, motivo: "SEM_PERMISSAO" };
-  if (atual.status !== "CANCELADO") return { ok: false, motivo: "NAO_CANCELADA" };
+  if (!ehAdmin) {
+    if (atual.user_id !== userId) return { ok: false, motivo: "SEM_PERMISSAO" };
+    if (atual.status !== "CANCELADO") return { ok: false, motivo: "NAO_CANCELADA" };
+  }
 
+  // notificacoes aponta pra cá por referencia_tabela/referencia_id, sem FK
+  // (ponteiro solto, ver 009_notificacoes.sql) — sem isso, a notificação
+  // fica órfã pra sempre na lista (só perde o botão de ação, não some).
+  await sql`
+    DELETE FROM notificacoes
+    WHERE referencia_tabela = 'ferias_solicitacoes' AND referencia_id = ${id}
+  `;
   await sql`DELETE FROM ferias_solicitacoes WHERE id = ${id}`;
   return { ok: true };
 }
@@ -1125,7 +1285,7 @@ export async function listSolicitacoesEquipe(
   const linhas = await sql<LinhaSolicitacao[]>`
     ${SELECT_SOLICITACAO(sql)}
     WHERE f.tipo = 'FERIAS'
-      AND f.status IN ('APROVADO_GESTOR', 'APROVADO')
+      AND f.status IN ('APROVADO_GESTOR', 'APROVADO_RH', 'APROVADO')
       AND u.setor_id IN (SELECT id FROM setor WHERE gestor_id = ${gestorId})
     ORDER BY f.data_inicio ASC
   `;
@@ -1213,7 +1373,7 @@ export async function listVisaoGeral(
     const [temPedido] = await sql<{ id: string }[]>`
       SELECT id FROM ferias_solicitacoes
       WHERE user_id = ${c.id} AND tipo = 'FERIAS'
-        AND status IN ('PENDENTE', 'APROVADO_GESTOR', 'APROVADO')
+        AND status IN ('PENDENTE', 'APROVADO_GESTOR', 'APROVADO_RH', 'APROVADO')
         AND data_inicio BETWEEN ${ciclo.inicio} AND ${ciclo.fim}
       LIMIT 1
     `;
@@ -1264,7 +1424,7 @@ export async function verificarObrigacaoFerias(
   const [pedido] = await sql<{ id: string }[]>`
     SELECT id FROM ferias_solicitacoes
     WHERE user_id = ${userId} AND tipo = 'FERIAS'
-      AND status IN ('PENDENTE', 'APROVADO_GESTOR', 'AJUSTE_SUGERIDO', 'APROVADO')
+      AND status IN ('PENDENTE', 'APROVADO_GESTOR', 'APROVADO_RH', 'AJUSTE_SUGERIDO', 'APROVADO')
       AND data_inicio BETWEEN ${ciclo.inicio} AND ${ciclo.fim}
     LIMIT 1
   `;
@@ -1279,12 +1439,17 @@ export async function verificarObrigacaoFerias(
 
 /** Dados de uma solicitação para emitir notificações (dono + resumo). */
 export async function getSolicitacaoParaNotificar(id: string): Promise<{
+  status: StatusDB;
   userId: string;
   funcionarioNome: string;
+  funcionarioEmail: string;
   periodo: string;
   dias: number;
-  /** Papel do solicitante — decide quem confirma (COORDENADOR DP ou RH). */
+  /** Papel do solicitante (informativo). */
   solicitantePapel: string | null;
+  responsavelPrimeiraEtapaId: string | null;
+  /** FERIAS ou FOLGA — pro texto/ícone da notificação dizer qual dos dois é. */
+  tipo: "FERIAS" | "FOLGA";
 } | null> {
   const sql = getDatabase();
   const [linha] = await sql<LinhaSolicitacao[]>`
@@ -1294,11 +1459,15 @@ export async function getSolicitacaoParaNotificar(id: string): Promise<{
   const inicio = paraData(linha.data_inicio) ?? new Date();
   const fim = paraData(linha.data_fim) ?? inicio;
   return {
+    status: linha.status,
     userId: linha.userId,
     funcionarioNome: linha.funcionarioNome,
+    funcionarioEmail: linha.funcionarioEmail,
     periodo: formatarPeriodo(inicio, fim),
     dias: linha.dias,
     solicitantePapel: linha.solicitantePapel,
+    responsavelPrimeiraEtapaId: linha.responsavelPrimeiraEtapaId,
+    tipo: linha.tipo,
   };
 }
 

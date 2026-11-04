@@ -1,4 +1,5 @@
 import {
+  useCallback,
   useEffect,
   useRef,
   useState,
@@ -6,7 +7,7 @@ import {
   type FormEvent,
   type ReactNode,
 } from 'react'
-import { Award, BookOpen, Download, Eye, FileText, Upload, X } from 'lucide-react'
+import { Award, BookOpen, Download, Eye, FileText, Loader2, Upload, X } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import {
@@ -28,6 +29,9 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { toast } from '@/hooks/use-toast'
+import { logsService } from '@/features/logs/services/logsService'
+import { TAMANHO_MAXIMO_ANEXO_BYTES, TAMANHO_MAXIMO_ANEXO_MB } from '@/lib/cursos'
+import { comprimirPdf } from '@/lib/pdf'
 import type { CursoQualificacao, NovoCursoInput, TipoCursoQualificacao } from '../types'
 
 interface NewCursoModalProps {
@@ -48,6 +52,7 @@ function formatFileSize(size: number) {
 export function NewCursoModal({ children, categoria, onCriar }: NewCursoModalProps) {
   const [open, setOpen] = useState(false)
   const [enviando, setEnviando] = useState(false)
+  const [compactando, setCompactando] = useState(false)
   const [tipo, setTipo] = useState<TipoCursoQualificacao>(
     categoria === 'CERTIFICACAO' ? 'CERTIFICACAO' : 'CURSO',
   )
@@ -78,6 +83,62 @@ export function NewCursoModal({ children, categoria, onCriar }: NewCursoModalPro
     return () => URL.revokeObjectURL(objectUrl)
   }, [selectedFile])
 
+  /**
+   * Valida o tamanho antes de aceitar o arquivo (o backend também recusa,
+   * mas aqui evita o upload desnecessário). Se for um PDF grande demais,
+   * compacta automaticamente (ver lib/pdf.ts) em vez de só rejeitar — é o
+   * caso comum de um certificado escaneado. Pra imagem não tem
+   * compactação: rejeita direto, como antes.
+   */
+  const selecionarArquivo = useCallback(
+    async (arquivo: File) => {
+      if (compactando) return
+
+      if (arquivo.size <= TAMANHO_MAXIMO_ANEXO_BYTES) {
+        setSelectedFile(arquivo)
+        return
+      }
+
+      if (arquivo.type !== 'application/pdf') {
+        toast({
+          title: 'Arquivo muito grande',
+          description: `O certificado precisa ter até ${TAMANHO_MAXIMO_ANEXO_MB} MB.`,
+          variant: 'destructive',
+          duration: 5000,
+        })
+        return
+      }
+
+      setCompactando(true)
+      try {
+        const comprimido = await comprimirPdf(arquivo, { maxBytes: TAMANHO_MAXIMO_ANEXO_BYTES })
+        setSelectedFile(comprimido)
+        toast({
+          title: 'PDF compactado',
+          description: `Reduzido de ${formatFileSize(arquivo.size)} para ${formatFileSize(comprimido.size)} para caber no limite de ${TAMANHO_MAXIMO_ANEXO_MB} MB.`,
+          duration: 4000,
+        })
+      } catch (error) {
+        logsService.reportarErro({
+          modulo: 'cursos',
+          rota: 'NewCursoModal.selecionarArquivo',
+          codigo: 'COMPRESSAO_PDF_FALHOU',
+          mensagem: error instanceof Error ? error.message : 'Falha ao compactar o PDF',
+          stack: error instanceof Error ? (error.stack ?? null) : null,
+        })
+        toast({
+          title: 'Arquivo muito grande',
+          description: `Não foi possível reduzir o certificado abaixo de ${TAMANHO_MAXIMO_ANEXO_MB} MB. Tente um arquivo menor.`,
+          variant: 'destructive',
+          duration: 5000,
+        })
+      } finally {
+        setCompactando(false)
+      }
+    },
+    [compactando],
+  )
+
   // Com o dialog aberto, soltar um arquivo em qualquer ponto da tela conta
   // como upload do certificado — não precisa acertar a caixinha.
   useEffect(() => {
@@ -101,7 +162,7 @@ export function NewCursoModal({ children, categoria, onCriar }: NewCursoModalPro
       event.preventDefault()
       setArrastandoNaTela(false)
       const arquivo = event.dataTransfer?.files?.[0]
-      if (arquivo) setSelectedFile(arquivo)
+      if (arquivo) selecionarArquivo(arquivo)
     }
 
     window.addEventListener('dragover', handleWindowDragOver)
@@ -113,10 +174,11 @@ export function NewCursoModal({ children, categoria, onCriar }: NewCursoModalPro
       window.removeEventListener('dragleave', handleWindowDragLeave)
       window.removeEventListener('drop', handleWindowDrop)
     }
-  }, [open])
+  }, [open, selecionarArquivo])
 
   function limpar() {
     setSelectedFile(null)
+    setCompactando(false)
     setTipo(categoria === 'CERTIFICACAO' ? 'CERTIFICACAO' : 'CURSO')
     setNome('')
     setInstituicao('')
@@ -166,7 +228,12 @@ export function NewCursoModal({ children, categoria, onCriar }: NewCursoModalPro
   }
 
   function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
-    setSelectedFile(event.target.files?.[0] ?? null)
+    const arquivo = event.target.files?.[0]
+    if (arquivo) {
+      selecionarArquivo(arquivo)
+    } else {
+      setSelectedFile(null)
+    }
   }
 
   function handleRemoveFile() {
@@ -287,10 +354,19 @@ export function NewCursoModal({ children, categoria, onCriar }: NewCursoModalPro
               type="file"
               accept="image/*,.pdf"
               className="hidden"
+              disabled={compactando}
               onChange={handleFileChange}
             />
 
-            {!selectedFile && (
+            {compactando ? (
+              <div className="flex min-h-24 flex-col items-center justify-center gap-1.5 rounded-lg border border-dashed border-muted-foreground/30 bg-muted/20 px-4 py-3 text-center">
+                <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                <p className="text-sm font-medium">
+                  Compactando o PDF para caber em {TAMANHO_MAXIMO_ANEXO_MB} MB…
+                </p>
+                <p className="mt-0.5 text-xs text-muted-foreground">Pode levar alguns segundos.</p>
+              </div>
+            ) : !selectedFile ? (
               <div
                 role="button"
                 tabIndex={0}
@@ -313,11 +389,13 @@ export function NewCursoModal({ children, categoria, onCriar }: NewCursoModalPro
                     ? 'Solte o arquivo aqui'
                     : 'Arraste o certificado aqui ou clique para selecionar'}
                 </p>
-                <p className="mt-0.5 text-xs text-muted-foreground">PDF ou imagem</p>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  PDF ou imagem · até {TAMANHO_MAXIMO_ANEXO_MB} MB
+                </p>
               </div>
-            )}
+            ) : null}
 
-            {selectedFile && previewUrl ? (
+            {!compactando && selectedFile && previewUrl ? (
               <div className="flex items-center justify-between gap-3 rounded-lg border bg-background p-2.5">
                 <div className="flex min-w-0 items-center gap-3">
                   <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-md border bg-muted">
@@ -378,7 +456,7 @@ export function NewCursoModal({ children, categoria, onCriar }: NewCursoModalPro
             <Button type="button" variant="outline" onClick={() => setOpen(false)}>
               Cancelar
             </Button>
-            <Button type="submit" disabled={enviando || !podeEnviar}>
+            <Button type="submit" disabled={enviando || !podeEnviar || compactando}>
               {enviando ? 'Enviando…' : 'Adicionar'}
             </Button>
           </DialogFooter>

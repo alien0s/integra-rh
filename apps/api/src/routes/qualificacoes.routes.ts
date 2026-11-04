@@ -7,6 +7,7 @@ import {
   aprovarCurso,
   aprovarFormacao,
   aprovarIdioma,
+  atualizarFormacao,
   criarCurso,
   criarFormacao,
   criarOuAtualizarIdioma,
@@ -38,11 +39,15 @@ import {
   salvarCertificadoCurso,
   type CursoQualificacao,
   type CursoQualificacaoInput,
+  type CursoQualificacaoModeracao,
   type FormacaoAcademica,
+  type FormacaoAcademicaEdicaoInput,
   type FormacaoAcademicaInput,
+  type FormacaoAcademicaModeracao,
   type FuncionarioQualificacoesDTO,
   type Idioma,
   type IdiomaInput,
+  type IdiomaModeracao,
   type QualificacoesResumoDTO,
 } from "../lib/qualificacoes.js";
 import { rodaComoUsuario } from "../lib/database.js";
@@ -57,7 +62,7 @@ import {
 import { emitirParaPapeis, emitirParaUsuario } from "../lib/notificacoes.js";
 import { deleteObject, getObjectStream, uploadObject } from "../lib/storage.js";
 import { buscarUsuariosPorNomeAproximado, type CandidatoUsuario } from "../lib/usuarios.js";
-import { exigirAdminOuPapeisDuranteBeta } from "../plugins/auth.js";
+import { exigirAcessoBeta } from "../plugins/auth.js";
 import type { ApiListResponse, ApiResponse } from "../types/api.js";
 
 /**
@@ -84,16 +89,29 @@ interface ResultadoLeituraDiploma {
   motivo?: string;
 }
 
-/** Papéis com permissão para moderar (aprovar/recusar/excluir de qualquer pessoa). */
-const PAPEIS_RH = new Set(["ADMIN", "RH"]);
+/**
+ * Papéis com permissão para moderar (aprovar/recusar/excluir de qualquer
+ * pessoa) e para ver a aba "Visão geral" (estatísticas + tabela de
+ * funcionários, ver GET /qualificacoes/resumo e /funcionarios abaixo):
+ * ADMIN, RH (Recursos Humanos), DP (Departamento Pessoal) e COORDENADOR DP
+ * (Coord. Departamento Pessoal) — códigos conforme `roles.codigo`. Mesmo
+ * conjunto de papéis usado em férias (PAPEIS_DP_RH, ver
+ * apps/web/src/features/ferias/components/FeriasOverview.tsx).
+ */
+const PAPEIS_RH = new Set(["ADMIN", "RH", "DP", "COORDENADOR DP"]);
 
 /**
- * Papel que recebe a notificação de "novo cadastro pendente" — o mesmo que
- * modera (PAPEIS_RH acima). A notificação é ACIONÁVEL (`requerAcao: true`):
- * o RH aprova/recusa direto pelo cartão da notificação (ver
- * lib/notificacoes.ts: acionavelPorEtapa soma o JOIN nas 3 tabelas de
- * qualificações pra saber se ainda está PENDENTE — some da lista assim que
- * alguém decide).
+ * Papel que recebe a notificação de "novo cadastro pendente" — só RH, de
+ * propósito mais restrito que PAPEIS_RH acima: notificar várias pessoas pelo
+ * mesmo item acionável é evitado neste projeto (mesma ideia de
+ * papeisQueConfirmam em ferias.routes.ts, que também nunca notifica mais de
+ * um papel pelo mesmo pedido). DP/COORDENADOR DP/ADMIN moderam pela própria
+ * fila da Visão geral (GET /qualificacoes/pendentes), não por notificação
+ * proativa — ADMIN, que também modera, já nem está nesta lista hoje. A
+ * notificação é ACIONÁVEL (`requerAcao: true`): o RH aprova/recusa direto
+ * pelo cartão da notificação (ver lib/notificacoes.ts: acionavelPorEtapa
+ * soma o JOIN nas 3 tabelas de qualificações pra saber se ainda está
+ * PENDENTE — some da lista assim que alguém decide).
  */
 const PAPEIS_NOTIFICAR_NOVA_QUALIFICACAO = ["RH"];
 
@@ -114,13 +132,13 @@ function ehRh(papelCodigo: string | undefined): boolean {
  * e da fila de moderação do RH.
  */
 export async function qualificacoesRoutes(app: FastifyInstance) {
-  // Lançamento beta (ver exigirAdminOuPapeisDuranteBeta): ADMIN e RH por
-  // enquanto — RH já modera (aprovar/recusar) cursos/formações/idiomas nessa
-  // tela (ver PAPEIS_RH/ehRh abaixo), então também passa pelo bloqueio do
-  // lançamento. Espelha o front (RequireLancamentoBeta em /cursos, App.tsx).
-  // Roda em TODAS as rotas deste arquivo (hook de plugin, depois de
-  // app.authenticate).
-  app.addHook("preHandler", exigirAdminOuPapeisDuranteBeta(PAPEIS_RH));
+  // Lançamento beta (ver exigirAcessoBeta): ADMIN e quem foi liberado
+  // antecipadamente pro módulo "cursos" (configurável na tela Tabelas — RH
+  // já vem liberado por padrão, porque já modera (aprovar/recusar) cursos/
+  // formações/idiomas nessa tela, ver PAPEIS_RH/ehRh abaixo). Espelha o
+  // front (RequireLancamentoBeta em /cursos, App.tsx). Roda em TODAS as
+  // rotas deste arquivo (hook de plugin, depois de app.authenticate).
+  app.addHook("preHandler", exigirAcessoBeta("cursos"));
 
   /* ── Leitura — próprio colaborador (gerencia os próprios registros) ──── */
 
@@ -183,43 +201,51 @@ export async function qualificacoesRoutes(app: FastifyInstance) {
     },
   );
 
-  /* ── Leitura — dashboard "Visão geral" ─────────────────────────────────── */
+  /* ── Leitura — dashboard "Visão geral" (RH/DP/Admin) ───────────────────── */
 
-  app.get<{ Reply: ApiResponse<QualificacoesResumoDTO> }>(
+  app.get<{ Reply: ApiResponse<QualificacoesResumoDTO> | { message: string } }>(
     "/qualificacoes/resumo",
     {
       onRequest: [app.authenticate],
       schema: {
         tags: ["Cursos e Qualificações"],
-        summary: "Estatísticas agregadas (cards do topo da Visão geral)",
+        summary: "Estatísticas agregadas (cards do topo da Visão geral) (RH/DP/Admin)",
       },
     },
-    async () => ({ data: await getQualificacoesResumo() }),
+    async (request, reply) => {
+      if (!ehRh(request.user.papelCodigo)) {
+        return reply.code(403).send({ message: "Sem permissão para ver a Visão geral." });
+      }
+      return { data: await getQualificacoesResumo() };
+    },
   );
 
-  app.get<{ Reply: ApiListResponse<FuncionarioQualificacoesDTO> }>(
+  app.get<{ Reply: ApiListResponse<FuncionarioQualificacoesDTO> | { message: string } }>(
     "/qualificacoes/funcionarios",
     {
       onRequest: [app.authenticate],
       schema: {
         tags: ["Cursos e Qualificações"],
-        summary: "Colaboradores com a contagem de qualificações aprovadas (tabela da Visão geral)",
+        summary: "Colaboradores com a contagem de qualificações aprovadas (tabela da Visão geral) (RH/DP/Admin)",
       },
     },
-    async () => {
+    async (request, reply) => {
+      if (!ehRh(request.user.papelCodigo)) {
+        return reply.code(403).send({ message: "Sem permissão para ver a Visão geral." });
+      }
       const funcionarios = await listFuncionariosComQualificacoes();
       return { data: funcionarios, total: funcionarios.length };
     },
   );
 
-  /* ── Leitura — fila de moderação (RH/Admin) ────────────────────────────── */
+  /* ── Leitura — fila de moderação (RH/DP/Admin) ────────────────────────────── */
 
   app.get<{
     Reply:
       | ApiResponse<{
-          formacoes: FormacaoAcademica[];
-          cursos: CursoQualificacao[];
-          idiomas: Idioma[];
+          formacoes: FormacaoAcademicaModeracao[];
+          cursos: CursoQualificacaoModeracao[];
+          idiomas: IdiomaModeracao[];
         }>
       | { message: string };
   }>(
@@ -228,7 +254,7 @@ export async function qualificacoesRoutes(app: FastifyInstance) {
       onRequest: [app.authenticate],
       schema: {
         tags: ["Cursos e Qualificações"],
-        summary: "Fila de moderação — tudo que está PENDENTE (RH/Admin)",
+        summary: "Fila de moderação — tudo que está PENDENTE (RH/DP/Admin)",
       },
     },
     async (request, reply) => {
@@ -300,10 +326,66 @@ export async function qualificacoesRoutes(app: FastifyInstance) {
     },
   );
 
+  app.patch<{
+    Params: { id: string };
+    Body: FormacaoAcademicaEdicaoInput;
+    Reply: ApiResponse<FormacaoAcademica> | { message: string };
+  }>(
+    "/qualificacoes/formacoes/:id",
+    {
+      onRequest: [app.authenticate],
+      schema: {
+        tags: ["Cursos e Qualificações"],
+        summary: "Edita uma formação acadêmica (volta como PENDENTE)",
+        body: {
+          type: "object",
+          required: ["nivel", "curso", "instituicao", "anoInicio", "situacao"],
+          properties: {
+            nivel: {
+              type: "string",
+              enum: ["TECNICO", "GRADUACAO", "POS_GRADUACAO", "MBA", "MESTRADO", "DOUTORADO"],
+            },
+            curso: { type: "string", minLength: 1 },
+            instituicao: { type: "string", minLength: 1 },
+            anoInicio: { type: "number" },
+            anoFim: { type: ["number", "null"] },
+            situacao: { type: "string", enum: ["EM_ANDAMENTO", "CONCLUIDO", "TRANCADO"] },
+          },
+          additionalProperties: false,
+        },
+      },
+    },
+    async (request, reply) => {
+      return rodaComoUsuario(request.user, async () => {
+        const atualizada = await atualizarFormacao(
+          request.params.id,
+          request.user.id,
+          { ...request.body, anoFim: request.body.anoFim ?? null },
+          ehRh(request.user.papelCodigo),
+        );
+        if (!atualizada) {
+          return reply.code(404).send({ message: "Formação não encontrada." });
+        }
+
+        await emitirParaPapeis(PAPEIS_NOTIFICAR_NOVA_QUALIFICACAO, {
+          atorId: request.user.id,
+          tipo: "CURSO_FORMACAO_CADASTRADA",
+          acao: "atualizou uma formação acadêmica",
+          detalhe: atualizada.curso,
+          referenciaTabela: "qualificacoes_academicas",
+          referenciaId: atualizada.id,
+          requerAcao: true,
+        });
+
+        return { data: atualizada };
+      });
+    },
+  );
+
   /**
    * Detalhe de UMA formação (qualquer status) — usada pelo dialog que abre
    * ao clicar numa notificação de qualificação (ver DetalheQualificacaoDialog
-   * no front). Só RH/Admin (mesma regra de quem modera).
+   * no front). Só RH/DP/Admin (mesma regra de quem modera).
    */
   app.get<{
     Params: { id: string };
@@ -312,7 +394,7 @@ export async function qualificacoesRoutes(app: FastifyInstance) {
     "/qualificacoes/formacoes/:id",
     {
       onRequest: [app.authenticate],
-      schema: { tags: ["Cursos e Qualificações"], summary: "Detalhe de uma formação acadêmica (RH/Admin)" },
+      schema: { tags: ["Cursos e Qualificações"], summary: "Detalhe de uma formação acadêmica (RH/DP/Admin)" },
     },
     async (request, reply) => {
       if (!ehRh(request.user.papelCodigo)) {
@@ -356,7 +438,7 @@ export async function qualificacoesRoutes(app: FastifyInstance) {
     "/qualificacoes/formacoes/:id/aprovar",
     {
       onRequest: [app.authenticate],
-      schema: { tags: ["Cursos e Qualificações"], summary: "Aprova uma formação acadêmica (RH/Admin)" },
+      schema: { tags: ["Cursos e Qualificações"], summary: "Aprova uma formação acadêmica (RH/DP/Admin)" },
     },
     async (request, reply) => {
       if (!ehRh(request.user.papelCodigo)) {
@@ -390,7 +472,7 @@ export async function qualificacoesRoutes(app: FastifyInstance) {
       onRequest: [app.authenticate],
       schema: {
         tags: ["Cursos e Qualificações"],
-        summary: "Recusa uma formação acadêmica com justificativa (RH/Admin)",
+        summary: "Recusa uma formação acadêmica com justificativa (RH/DP/Admin)",
         body: {
           type: "object",
           required: ["motivo"],
@@ -513,7 +595,7 @@ export async function qualificacoesRoutes(app: FastifyInstance) {
         if (!registro || !registro.chave) {
           return reply.code(404).send({ message: "Sem anexo." });
         }
-        // Só o dono, RH/Admin, ou — já aprovado — qualquer colaborador autenticado.
+        // Só o dono, RH/DP/Admin, ou — já aprovado — qualquer colaborador autenticado.
         const podeVer =
           registro.userId === request.user.id ||
           ehRh(request.user.papelCodigo) ||
@@ -586,7 +668,7 @@ export async function qualificacoesRoutes(app: FastifyInstance) {
     },
   );
 
-  /** Detalhe de UM curso/workshop/certificação (qualquer status). Só RH/Admin. */
+  /** Detalhe de UM curso/workshop/certificação (qualquer status). Só RH/DP/Admin. */
   app.get<{
     Params: { id: string };
     Reply: ApiResponse<CursoQualificacao> | { message: string };
@@ -594,7 +676,7 @@ export async function qualificacoesRoutes(app: FastifyInstance) {
     "/qualificacoes/cursos/:id",
     {
       onRequest: [app.authenticate],
-      schema: { tags: ["Cursos e Qualificações"], summary: "Detalhe de um curso/workshop/certificação (RH/Admin)" },
+      schema: { tags: ["Cursos e Qualificações"], summary: "Detalhe de um curso/workshop/certificação (RH/DP/Admin)" },
     },
     async (request, reply) => {
       if (!ehRh(request.user.papelCodigo)) {
@@ -638,7 +720,7 @@ export async function qualificacoesRoutes(app: FastifyInstance) {
     "/qualificacoes/cursos/:id/aprovar",
     {
       onRequest: [app.authenticate],
-      schema: { tags: ["Cursos e Qualificações"], summary: "Aprova um curso/workshop/certificação (RH/Admin)" },
+      schema: { tags: ["Cursos e Qualificações"], summary: "Aprova um curso/workshop/certificação (RH/DP/Admin)" },
     },
     async (request, reply) => {
       if (!ehRh(request.user.papelCodigo)) {
@@ -672,7 +754,7 @@ export async function qualificacoesRoutes(app: FastifyInstance) {
       onRequest: [app.authenticate],
       schema: {
         tags: ["Cursos e Qualificações"],
-        summary: "Recusa um curso/workshop/certificação com justificativa (RH/Admin)",
+        summary: "Recusa um curso/workshop/certificação com justificativa (RH/DP/Admin)",
         body: {
           type: "object",
           required: ["motivo"],
@@ -864,7 +946,7 @@ export async function qualificacoesRoutes(app: FastifyInstance) {
     },
   );
 
-  /** Detalhe de UM idioma (qualquer status). Só RH/Admin. */
+  /** Detalhe de UM idioma (qualquer status). Só RH/DP/Admin. */
   app.get<{
     Params: { id: string };
     Reply: ApiResponse<Idioma> | { message: string };
@@ -872,7 +954,7 @@ export async function qualificacoesRoutes(app: FastifyInstance) {
     "/qualificacoes/idiomas/:id",
     {
       onRequest: [app.authenticate],
-      schema: { tags: ["Cursos e Qualificações"], summary: "Detalhe de um idioma (RH/Admin)" },
+      schema: { tags: ["Cursos e Qualificações"], summary: "Detalhe de um idioma (RH/DP/Admin)" },
     },
     async (request, reply) => {
       if (!ehRh(request.user.papelCodigo)) {
@@ -916,7 +998,7 @@ export async function qualificacoesRoutes(app: FastifyInstance) {
     "/qualificacoes/idiomas/:id/aprovar",
     {
       onRequest: [app.authenticate],
-      schema: { tags: ["Cursos e Qualificações"], summary: "Aprova um idioma (RH/Admin)" },
+      schema: { tags: ["Cursos e Qualificações"], summary: "Aprova um idioma (RH/DP/Admin)" },
     },
     async (request, reply) => {
       if (!ehRh(request.user.papelCodigo)) {
@@ -950,7 +1032,7 @@ export async function qualificacoesRoutes(app: FastifyInstance) {
       onRequest: [app.authenticate],
       schema: {
         tags: ["Cursos e Qualificações"],
-        summary: "Recusa um idioma com justificativa (RH/Admin)",
+        summary: "Recusa um idioma com justificativa (RH/DP/Admin)",
         body: {
           type: "object",
           required: ["motivo"],

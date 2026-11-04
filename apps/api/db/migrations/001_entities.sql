@@ -1,5 +1,7 @@
 -- 1. TABELA ENTITIES (Empresas/Organizações)
 -- 
+-- rls SET app.papel = 'ADMIN'; entre como papel ADMIN
+ 
 
 CREATE TABLE IF NOT EXISTS entities (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

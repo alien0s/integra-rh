@@ -44,7 +44,7 @@ const APPS: AppLink[] = [
 /** Atalhos pros sistemas Power Apps da organização (Central de Aplicativos). */
 export function AppsLinksCard() {
   return (
-    <Card className="shadow-none">
+    <Card className="md:h-80 shadow-none">
       <CardHeader className="flex flex-row items-center gap-2 pb-2">
         <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300">
           <LayoutGrid className="h-5 w-5" />

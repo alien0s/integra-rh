@@ -112,6 +112,8 @@ export function verifyAuthToken(token: string): AuthUser {
     funcao: payload.funcao,
     avatar: payload.avatar,
     papelCodigo: payload.papelCodigo,
-    personificadoPor: payload.personificadoPor
+    personificadoPor: payload.personificadoPor,
+    modulosRestritos: payload.modulosRestritos,
+    modulosBetaLiberados: payload.modulosBetaLiberados
   };
 }

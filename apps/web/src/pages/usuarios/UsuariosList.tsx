@@ -7,6 +7,7 @@ import {
   UsuariosGrid,
   UsuariosTable,
   UsuariosTableActions,
+  UsuariosTableSkeleton,
 } from '@/features/usuarios/components'
 import { useOpcoesUsuario, useUsuarios } from '@/features/usuarios/hooks'
 import { useEntidades } from '@/features/tabelas/hooks'
@@ -100,20 +101,23 @@ export function UsuariosList() {
           view={view}
           usuarios={usuarios}
           setores={setores}
+          entidades={entidades}
+          papeis={papeis}
           onSearchChange={setSearch}
           onVisibleColumnsChange={setVisibleColumns}
           onViewChange={setView}
           onImportComplete={recarregar}
           onGerenteAtribuido={recarregar}
+          onUsuarioCriado={recarregar}
         />
         {error ? (
           <p className="rounded-lg border border-dashed p-6 text-center text-sm text-destructive">
             {error}
           </p>
         ) : isLoading ? (
-          <p className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
-            Carregando usuários…
-          </p>
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            <UsuariosTableSkeleton visibleColumns={visibleColumns} />
+          </div>
         ) : (
           // flex-1 min-h-0: ocupa a altura restante (abaixo da barra de
           // busca/filtros) e vira a única região com scroll — sidebar e

@@ -4,6 +4,7 @@ import type {
   EntidadeInput,
   Funcao,
   FuncaoInput,
+  ModuloVisibilidade,
   Papel,
   PapelInput,
   Setor,
@@ -98,6 +99,57 @@ const setoresCrud = criarClienteCrud<Setor, SetorInput>('setores')
 const funcoesCrud = criarClienteCrud<Funcao, FuncaoInput>('funcoes')
 const papeisCrud = criarClienteCrud<Papel, PapelInput>('papeis')
 
+/**
+ * Visibilidade de módulos (sidebar + rota) por papel — não é um CRUD simples
+ * (recurso identificado por dois ids, não um só), por isso não usa
+ * `criarClienteCrud`.
+ */
+async function getModulosVisibilidade(): Promise<ModuloVisibilidade[]> {
+  const response = await fetch(`${API_URL}/tabelas/modulos-visibilidade`, {
+    headers: authHeaders(),
+  })
+  if (!response.ok) return lancarErro(response, 'Falha ao buscar a visibilidade dos módulos')
+  const json = (await response.json()) as ApiListResponse<ModuloVisibilidade>
+  return json.data
+}
+
+async function definirVisibilidadeModulo(
+  moduloCodigo: string,
+  roleId: string,
+  visivel: boolean,
+): Promise<ModuloVisibilidade> {
+  const response = await fetch(
+    `${API_URL}/tabelas/modulos-visibilidade/${moduloCodigo}/${roleId}`,
+    {
+      method: 'PATCH',
+      headers: jsonHeaders(),
+      body: JSON.stringify({ visivel }),
+    },
+  )
+  if (!response.ok) return lancarErro(response, 'Falha ao atualizar a visibilidade do módulo')
+  const json = (await response.json()) as ApiResponse<ModuloVisibilidade>
+  return json.data
+}
+
+/** Libera (ou não) um módulo antecipadamente pra um papel, durante o lançamento beta. */
+async function definirLiberadoAntecipadoModulo(
+  moduloCodigo: string,
+  roleId: string,
+  liberadoAntecipado: boolean,
+): Promise<ModuloVisibilidade> {
+  const response = await fetch(
+    `${API_URL}/tabelas/modulos-visibilidade/${moduloCodigo}/${roleId}/liberado-antecipado`,
+    {
+      method: 'PATCH',
+      headers: jsonHeaders(),
+      body: JSON.stringify({ liberadoAntecipado }),
+    },
+  )
+  if (!response.ok) return lancarErro(response, 'Falha ao atualizar a liberação antecipada do módulo')
+  const json = (await response.json()) as ApiResponse<ModuloVisibilidade>
+  return json.data
+}
+
 export const tabelasService = {
   getEntidades: entidadesCrud.listar,
   criarEntidade: entidadesCrud.criar,
@@ -118,4 +170,8 @@ export const tabelasService = {
   criarPapel: papeisCrud.criar,
   atualizarPapel: papeisCrud.atualizar,
   excluirPapel: papeisCrud.excluir,
+
+  getModulosVisibilidade,
+  definirVisibilidadeModulo,
+  definirLiberadoAntecipadoModulo,
 }

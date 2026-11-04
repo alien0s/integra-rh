@@ -4,6 +4,7 @@ import { AppLayout } from '@/features/app/components'
 import {
   AparenciaForm,
   ConfiguracoesNav,
+  DocumentacaoApiSection,
 } from '@/features/configuracoes/components'
 import type { ConfiguracoesSection } from '@/features/configuracoes/types'
 
@@ -39,24 +40,13 @@ export function ConfiguracoesPage() {
 
         <div className="flex-1">
           {secao === 'aparencia' && <AparenciaForm />}
-          {secao === 'conta' && (
-            <EmBreve
-              titulo="Conta"
-              descricao="Dados institucionais (entidade, setor, admissão)."
-            />
-          )}
           {secao === 'notificacoes' && (
             <EmBreve
               titulo="Notificações"
               descricao="Configure como e quando você recebe avisos."
             />
           )}
-          {secao === 'exibicao' && (
-            <EmBreve
-              titulo="Exibição"
-              descricao="Ajuste o que aparece nas telas e listagens."
-            />
-          )}
+          {secao === 'documentacao-api' && <DocumentacaoApiSection />}
         </div>
       </div>
     </AppLayout>

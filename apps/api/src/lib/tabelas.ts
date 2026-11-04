@@ -1,6 +1,7 @@
 import postgres from 'postgres';
 
-import { getDatabase } from './database.js';
+import { getDatabase, setarIdentidadeNaTransacao } from './database.js';
+import type { AuthUser } from '../types/auth.js';
 
 /* ──────────────────────────────────────────────────────────────────────────
  * Tabelas de apoio (tela /tabelas) — CRUD completo de entities, setor,
@@ -109,16 +110,30 @@ async function resolverEntidadeUnica(sql: ReturnType<typeof postgres>): Promise<
 export interface Setor {
   id: string;
   nome: string;
+  gestorId: string | null;
+  gestorNome: string | null;
+  managerId: string | null;
+  managerNome: string | null;
   createdAt: string;
 }
 
 export interface SetorInput {
   nome: string;
+  /** Omitido mantém o gerente atual; null remove o vínculo. */
+  gestorId?: string | null;
+  /** Coordenador do setor; omitido mantém, null remove. */
+  managerId?: string | null;
 }
 
+export class GerenteSetorInvalidoError extends Error {}
+
 const SELECT_SETOR = (sql: ReturnType<typeof postgres>) => sql`
-  SELECT s.id, s.nome, to_char(s.created_at, 'DD/MM/YYYY HH24:MI') AS "createdAt"
+  SELECT s.id, s.nome, s.gestor_id AS "gestorId", g.nome AS "gestorNome",
+         (to_jsonb(s)->>'manager_id')::uuid AS "managerId", c.nome AS "managerNome",
+         to_char(s.created_at, 'DD/MM/YYYY HH24:MI') AS "createdAt"
   FROM setor s
+  LEFT JOIN users g ON g.id = s.gestor_id
+  LEFT JOIN users c ON c.id = (to_jsonb(s)->>'manager_id')::uuid
 `;
 
 export async function listSetoresCompleto(): Promise<Setor[]> {
@@ -126,34 +141,73 @@ export async function listSetoresCompleto(): Promise<Setor[]> {
   return sql<Setor[]>`${SELECT_SETOR(sql)} ORDER BY s.nome`;
 }
 
-export async function criarSetor(input: SetorInput): Promise<Setor> {
+/** Usa a mesma transação do setor para que vínculo e papel sejam salvos juntos. */
+async function definirPapelGerente(sql: postgres.TransactionSql, gestorId: string): Promise<void> {
+  const [papel] = await sql<{ id: string }[]>`
+    SELECT id FROM roles WHERE codigo = 'GESTOR' FOR SHARE
+  `;
+  if (!papel) {
+    throw new GerenteSetorInvalidoError('O papel Departamental / Gerente não está cadastrado.');
+  }
+  const usuario = await sql`
+    UPDATE users SET role_id = ${papel.id} WHERE id = ${gestorId}
+  `;
+  if (usuario.count === 0) {
+    throw new GerenteSetorInvalidoError('O usuário selecionado como gerente não foi encontrado.');
+  }
+}
+
+/** Coordenador mantém seu papel; não promove usuários ao cadastrar a chefia. */
+async function validarCoordenador(sql: postgres.TransactionSql, managerId: string | null, gestorId: string | null): Promise<void> {
+  if (!managerId) return;
+  if (managerId === gestorId) throw new GerenteSetorInvalidoError('Coordenador e gerente devem ser pessoas diferentes, pois possuem papéis distintos.');
+  const [usuario] = await sql`SELECT id FROM users WHERE id = ${managerId} AND is_active = TRUE FOR SHARE`;
+  if (!usuario) throw new GerenteSetorInvalidoError('O coordenador selecionado não foi encontrado ou está inativo.');
+}
+
+export async function criarSetor(input: SetorInput, ator: Pick<AuthUser, 'id' | 'papelCodigo'>): Promise<Setor> {
   const sql = getDatabase();
-  const [created] = await sql<{ id: string }[]>`
-    INSERT INTO setor (nome)
-    VALUES (${input.nome})
-    RETURNING id
-  `;
-  const [setor] = await sql<Setor[]>`
-    ${SELECT_SETOR(sql)} WHERE s.id = ${created.id}
-  `;
-  return setor;
+  return await sql.begin(async (tx) => {
+    await setarIdentidadeNaTransacao(tx, ator);
+    await validarCoordenador(tx, input.managerId ?? null, input.gestorId ?? null);
+    if (input.gestorId) await definirPapelGerente(tx, input.gestorId);
+    const [created] = await tx<{ id: string }[]>`
+      INSERT INTO setor (nome, gestor_id, manager_id)
+      VALUES (${input.nome}, ${input.gestorId ?? null}, ${input.managerId ?? null})
+      RETURNING id
+    `;
+    const [setor] = await tx<Setor[]>`
+      ${SELECT_SETOR(sql)} WHERE s.id = ${created.id}
+    `;
+    return setor;
+  }) as unknown as Setor;
 }
 
 export async function atualizarSetor(
   id: string,
   input: SetorInput,
+  ator: Pick<AuthUser, 'id' | 'papelCodigo'>,
 ): Promise<Setor | null> {
   const sql = getDatabase();
-  const updated = await sql`
-    UPDATE setor SET nome = ${input.nome}
-    WHERE id = ${id}
-  `;
-  if (updated.count === 0) return null;
-
-  const [setor] = await sql<Setor[]>`
-    ${SELECT_SETOR(sql)} WHERE s.id = ${id}
-  `;
-  return setor;
+  return await sql.begin(async (tx) => {
+    await setarIdentidadeNaTransacao(tx, ator);
+    const [atual] = await tx<{ gestorId: string | null; managerId: string | null }[]>`
+      SELECT gestor_id AS "gestorId", manager_id AS "managerId" FROM setor WHERE id = ${id} FOR UPDATE
+    `;
+    if (!atual) return null;
+    const gestorId = input.gestorId === undefined ? atual.gestorId : input.gestorId;
+    const managerId = input.managerId === undefined ? atual.managerId : input.managerId;
+    await validarCoordenador(tx, managerId, gestorId);
+    if (gestorId) await definirPapelGerente(tx, gestorId);
+    await tx`
+      UPDATE setor SET nome = ${input.nome}, gestor_id = ${gestorId}, manager_id = ${managerId}
+      WHERE id = ${id}
+    `;
+    const [setor] = await tx<Setor[]>`
+      ${SELECT_SETOR(sql)} WHERE s.id = ${id}
+    `;
+    return setor;
+  }) as unknown as Setor | null;
 }
 
 export async function excluirSetor(id: string): Promise<boolean> {

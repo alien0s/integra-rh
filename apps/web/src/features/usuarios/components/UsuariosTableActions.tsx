@@ -9,6 +9,7 @@ import {
   SlidersHorizontal,
   Table2,
   UserCog,
+  UserPlus,
   Upload,
 } from 'lucide-react'
 
@@ -21,7 +22,9 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { Input } from '@/components/ui/input'
+import { useAuth } from '@/features/auth/context'
 import { AtribuirGerenteDialog } from '@/features/usuarios/components/AtribuirGerenteDialog'
+import { CriarUsuarioDialog } from '@/features/usuarios/components/CriarUsuarioDialog'
 import { ImportarUsuariosDialog } from '@/features/usuarios/components/ImportarUsuariosDialog'
 import {
   exportarUsuariosExcel,
@@ -33,6 +36,7 @@ import type {
   UsuarioTableColumn,
   UsuarioView,
 } from '@/features/usuarios/types'
+import type { Papel } from '@/features/tabelas/types'
 
 interface UsuariosTableActionsProps {
   search: string
@@ -40,8 +44,12 @@ interface UsuariosTableActionsProps {
   view: UsuarioView
   /** Usuários a exportar (Excel/PDF). */
   usuarios: Usuario[]
-  /** Opções do dropdown de setor (dialog de atribuir gerente). */
+  /** Opções do dropdown de setor (dialog de atribuir gerente/criar usuário). */
   setores: OpcaoSelecao[]
+  /** Opções do dropdown de entidade (dialog de criar usuário — só ADMIN). */
+  entidades: OpcaoSelecao[]
+  /** Opções do dropdown de papel (dialog de criar usuário — só ADMIN). */
+  papeis: Papel[]
   onSearchChange: (value: string) => void
   onVisibleColumnsChange: (columns: UsuarioTableColumn[]) => void
   onViewChange: (view: UsuarioView) => void
@@ -49,6 +57,8 @@ interface UsuariosTableActionsProps {
   onImportComplete?: () => void
   /** Chamado após atribuir um gerente com sucesso (para recarregar a lista). */
   onGerenteAtribuido?: () => void
+  /** Chamado após criar um usuário com sucesso (para recarregar a lista). */
+  onUsuarioCriado?: () => void
 }
 
 const viewButtonClassName =
@@ -71,14 +81,20 @@ export function UsuariosTableActions({
   view,
   usuarios,
   setores,
+  entidades,
+  papeis,
   onSearchChange,
   onVisibleColumnsChange,
   onViewChange,
   onImportComplete,
   onGerenteAtribuido,
+  onUsuarioCriado,
 }: UsuariosTableActionsProps) {
+  const { usuario: usuarioLogado } = useAuth()
+  const ehAdmin = usuarioLogado?.papelCodigo === 'ADMIN'
   const [importarAberto, setImportarAberto] = useState(false)
   const [atribuirGerenteAberto, setAtribuirGerenteAberto] = useState(false)
+  const [criarUsuarioAberto, setCriarUsuarioAberto] = useState(false)
 
   function handleColumnVisibilityChange(
     column: UsuarioTableColumn,
@@ -160,24 +176,39 @@ export function UsuariosTableActions({
           </DropdownMenuContent>
         </DropdownMenu>
         
-        <Button
-          variant="outline"
-          size="sm"
-          className="bg-background"
-          onClick={() => setAtribuirGerenteAberto(true)}
-        >
-          <UserCog className="h-4 w-4" />
-          Atribuir gerente
-        </Button>
-        <Button
-          variant="outline"
-          size="sm"
-          className="bg-background"
-          onClick={() => setImportarAberto(true)}
-        >
-          <Upload className="h-4 w-4" />
-          Importar
-        </Button>
+        {ehAdmin ? (
+          <Button
+            variant="outline"
+            size="sm"
+            className="bg-background"
+            onClick={() => setCriarUsuarioAberto(true)}
+          >
+            <UserPlus className="h-4 w-4" />
+            Criar usuário
+          </Button>
+        ) : null}
+        {ehAdmin ? (
+          <Button
+            variant="outline"
+            size="sm"
+            className="bg-background"
+            onClick={() => setAtribuirGerenteAberto(true)}
+          >
+            <UserCog className="h-4 w-4" />
+            Atribuir gerente
+          </Button>
+        ) : null}
+        {ehAdmin ? (
+          <Button
+            variant="outline"
+            size="sm"
+            className="bg-background"
+            onClick={() => setImportarAberto(true)}
+          >
+            <Upload className="h-4 w-4" />
+            Importar
+          </Button>
+        ) : null}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant="outline" size="sm" className="bg-background">
@@ -198,18 +229,33 @@ export function UsuariosTableActions({
         </DropdownMenu>
       </div>
 
-      <ImportarUsuariosDialog
-        open={importarAberto}
-        onOpenChange={setImportarAberto}
-        onImported={onImportComplete}
-      />
+      {ehAdmin ? (
+        <ImportarUsuariosDialog
+          open={importarAberto}
+          onOpenChange={setImportarAberto}
+          onImported={onImportComplete}
+        />
+      ) : null}
 
-      <AtribuirGerenteDialog
-        open={atribuirGerenteAberto}
-        onOpenChange={setAtribuirGerenteAberto}
-        setores={setores}
-        onAtribuido={onGerenteAtribuido}
-      />
+      {ehAdmin ? (
+        <AtribuirGerenteDialog
+          open={atribuirGerenteAberto}
+          onOpenChange={setAtribuirGerenteAberto}
+          setores={setores}
+          onAtribuido={onGerenteAtribuido}
+        />
+      ) : null}
+
+      {ehAdmin ? (
+        <CriarUsuarioDialog
+          open={criarUsuarioAberto}
+          onOpenChange={setCriarUsuarioAberto}
+          entidades={entidades}
+          setores={setores}
+          papeis={papeis}
+          onCriado={onUsuarioCriado}
+        />
+      ) : null}
     </div>
   )
 }

@@ -1,7 +1,7 @@
 import { useMemo, useState, type ComponentProps } from 'react'
 import { format } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
-import { Download, Landmark, Loader2, Trash2 } from 'lucide-react'
+import { Landmark, Loader2, Trash2 } from 'lucide-react'
 
 import {
   AlertDialog,
@@ -49,7 +49,6 @@ function dataLocal(iso: string): Date {
  */
 export function FeriadosAdmin() {
   const [ano, setAno] = useState(() => new Date().getFullYear())
-  const [importando, setImportando] = useState(false)
   const [importandoLegado, setImportandoLegado] = useState(false)
   // Dia clicado no calendário (abre o editor); `null` = editor fechado.
   const [diaSel, setDiaSel] = useState<Date | null>(null)
@@ -64,7 +63,6 @@ export function FeriadosAdmin() {
     atualizar,
     excluir,
     excluirTodosDoAno,
-    importar,
     importarLegado,
   } = useFeriados(ano)
 
@@ -126,27 +124,6 @@ export function FeriadosAdmin() {
     }
   }
 
-  /** Importa os feriados nacionais do ano (BrasilAPI) e avisa por toast. */
-  async function handleImportar() {
-    setImportando(true)
-    try {
-      const { inseridos, total } = await importar()
-      toast({
-        title: `Feriados de ${ano} importados`,
-        description: `${inseridos} novo(s) de ${total} nacionais (BrasilAPI).`,
-        duration: 4000,
-      })
-    } catch (e) {
-      toast({
-        title: 'Falha ao importar feriados',
-        description: e instanceof Error ? e.message : undefined,
-        variant: 'destructive',
-      })
-    } finally {
-      setImportando(false)
-    }
-  }
-
   /** Importa os municipais/estaduais do ano do legado (APS) e avisa por toast. */
   async function handleImportarLegado() {
     setImportandoLegado(true)
@@ -201,17 +178,14 @@ export function FeriadosAdmin() {
             {feriados.length} feriado(s)
             <Trash2 className="h-4 w-4" />
           </Button>
-          <Button variant="outline" onClick={handleImportar} disabled={importando}>
-            <Download className="h-4 w-4" />
-            {importando ? 'Importando…' : `Importar nacionais de ${ano}`}
-          </Button>
           <Button
             variant="outline"
             onClick={handleImportarLegado}
             disabled={importandoLegado}
+            title={`Importar feriados do APS de ${ano}`}
           >
             <Landmark className="h-4 w-4" />
-            {importandoLegado ? 'Importando…' : `Importar do legado (APS) de ${ano}`}
+            {importandoLegado ? 'Importando…' : 'Importar feriados do APS'}
           </Button>
         </div>
       </div>

@@ -1,5 +1,12 @@
 /** Ícone exibido no cartão de ação embutido. */
-export type NotificacaoCartaoIcone = 'arquivo' | 'documento' | 'curso' | 'obrigacao' | 'folga'
+export type NotificacaoCartaoIcone =
+  | 'arquivo'
+  | 'documento'
+  | 'curso'
+  | 'obrigacao'
+  | 'folga'
+  | 'divergencia'
+  | 'ferias'
 
 /**
  * Notificação padrão do sistema lembrando de solicitar férias (obrigação

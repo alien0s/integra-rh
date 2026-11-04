@@ -26,7 +26,8 @@ import {
   type LancamentoVr,
   type TipoLancamentoVr,
   type VrMes,
-} from '@/features/vr/types'
+}
+ from '@/features/vr/types'
 
 interface LancamentosVrDialogProps {
   vrMes: VrMes

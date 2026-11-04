@@ -109,10 +109,13 @@ export const authService = {
   },
 
   /**
-   * Atualiza o próprio perfil (só telefone — CPF não é editável, vem do
-   * legado). Requer estar logado.
+   * Atualiza o próprio perfil (telefone e, no autoatendimento, estado civil
+   * — CPF não é editável, vem do legado). Requer estar logado.
    */
-  async updateMeuPerfil(input: { telefone: string | null }): Promise<void> {
+  async updateMeuPerfil(input: {
+    telefone: string | null
+    estadoCivilCodigo?: string | null
+  }): Promise<void> {
     const response = await fetch(`${API_URL}/auth/me`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json', ...authHeaders() },

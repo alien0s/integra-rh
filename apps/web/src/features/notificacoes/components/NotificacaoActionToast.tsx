@@ -38,8 +38,8 @@ export function NotificacaoActionToast({
   const [enviando, setEnviando] = useState(false)
   const [abrindoAnexo, setAbrindoAnexo] = useState(false)
 
-  // Card do DP (2ª etapa) confirma; card do gestor aprova.
-  const rotuloAprovar = notificacao.tipo?.endsWith('_AGUARDA_DP')
+  // Tesoureiro Assistente confirma; gestor e RH aprovam.
+  const rotuloAprovar = notificacao.tipo?.endsWith('_AGUARDA_ASSISTENTE')
     ? 'Confirmar'
     : 'Aprovar'
 

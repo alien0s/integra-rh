@@ -24,6 +24,14 @@ interface EstadoDetalheQualificacao {
   referenciaId: string | null
   /** Nome de quem cadastrou — normalmente já vem da notificação clicada. */
   nomeFuncionario: string | null
+  /**
+   * Incrementa toda vez que uma decisão (aprovar/recusar) é concluída com
+   * sucesso — NÃO quando o dialog só fecha sem decidir nada. Permite quem
+   * abriu o dialog (ex.: QualificacoesPendentesDialog) saber que precisa
+   * recarregar a própria lista, sem recarregar à toa (e bater no banco)
+   * todo fechamento, inclusive os que não mudaram nada.
+   */
+  decisoes: number
 }
 
 const estadoInicial: EstadoDetalheQualificacao = {
@@ -31,6 +39,7 @@ const estadoInicial: EstadoDetalheQualificacao = {
   referenciaTabela: null,
   referenciaId: null,
   nomeFuncionario: null,
+  decisoes: 0,
 }
 
 let estado: EstadoDetalheQualificacao = estadoInicial
@@ -53,6 +62,7 @@ export function abrirDetalheQualificacao({
   nomeFuncionario,
 }: AbrirDetalheQualificacaoOptions) {
   estado = {
+    ...estado,
     aberto: true,
     referenciaTabela,
     referenciaId,
@@ -64,6 +74,17 @@ export function abrirDetalheQualificacao({
 /** Fecha o dialog — usado pelo próprio DetalheQualificacaoDialog (onOpenChange). */
 export function fecharDetalheQualificacao() {
   estado = { ...estado, aberto: false }
+  emitir()
+}
+
+/**
+ * Marca que uma decisão foi tomada (aprovar/recusar com sucesso) — chamado
+ * pelo próprio DetalheQualificacaoDialog logo antes de fechar. Quem
+ * depende de "algo mudou" (QualificacoesPendentesDialog) observa `decisoes`
+ * em vez de `aberto`, que mudaria pra qualquer fechamento.
+ */
+export function registrarDecisaoQualificacao() {
+  estado = { ...estado, decisoes: estado.decisoes + 1 }
   emitir()
 }
 

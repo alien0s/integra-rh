@@ -33,6 +33,7 @@ export function CursosOverview({ data }: CursosOverviewProps) {
             <FormacaoAcademica
               data={data.formacoes}
               onCriar={data.criarFormacao}
+              onEditar={data.editarFormacao}
               onExcluir={data.excluirFormacao}
             />
             <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">

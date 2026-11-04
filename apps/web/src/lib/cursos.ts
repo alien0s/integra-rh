@@ -34,6 +34,14 @@ export const CURSOS_STYLES: Record<string, CursoStyleConfig> = {
   },
 }
 
+/**
+ * Tamanho máximo de upload do diploma/certificado — precisa continuar igual
+ * ao limite do multipart no backend (apps/api/src/app.ts, `limits.fileSize`),
+ * que é quem de fato recusa o arquivo; aqui é só pra avisar antes de enviar.
+ */
+export const TAMANHO_MAXIMO_ANEXO_MB = 5
+export const TAMANHO_MAXIMO_ANEXO_BYTES = TAMANHO_MAXIMO_ANEXO_MB * 1024 * 1024
+
 /** Rótulo por extenso de cada nível de formação (usado como prefixo do curso). */
 export const NIVEL_FORMACAO_LABEL: Record<NivelFormacao, string> = {
   TECNICO: 'Técnico em',

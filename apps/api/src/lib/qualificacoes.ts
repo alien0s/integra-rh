@@ -124,12 +124,51 @@ export async function listFormacoesAprovadas(
   }));
 }
 
+/**
+ * Igual ao tipo base, mas com quem mandou e quando — só pra fila de
+ * moderação (dialog "Pendentes" do RH/DP, ver QualificacoesPendentesDialog
+ * no front), que precisa mostrar isso pra identificar/priorizar os itens.
+ */
+export interface FormacaoAcademicaModeracao extends FormacaoAcademica {
+  funcionarioNome: string;
+  fotoUrl: string;
+  iniciais: string;
+  createdAt: string;
+}
+
 /** Todas as formações pendentes de aprovação (fila de moderação do RH). */
-export async function listFormacoesPendentes(): Promise<FormacaoAcademica[]> {
+export async function listFormacoesPendentes(): Promise<FormacaoAcademicaModeracao[]> {
   const sql = getDatabase();
-  return sql<FormacaoAcademica[]>`
-    ${SELECT_FORMACAO(sql)} WHERE status = 'PENDENTE' ORDER BY id
+  const linhas = await sql<
+    (FormacaoAcademica & { nome: string; avatarUrl: string | null; createdAt: string })[]
+  >`
+    SELECT q.id, q.user_id AS "userId", q.nivel, q.curso, q.instituicao,
+           q.ano_inicio AS "anoInicio", q.ano_fim AS "anoFim", q.situacao,
+           q.anexo_url AS "anexoUrl", q.status, q.motivo_recusa AS "motivoRecusa",
+           u.nome, u.avatar_url AS "avatarUrl",
+           to_char(q.created_at, 'YYYY-MM-DD"T"HH24:MI:SS') AS "createdAt"
+    FROM qualificacoes_academicas q
+    JOIN users u ON u.id = q.user_id
+    WHERE q.status = 'PENDENTE'
+    ORDER BY q.created_at ASC
   `;
+  return linhas.map((linha) => ({
+    id: linha.id,
+    userId: linha.userId,
+    nivel: linha.nivel,
+    curso: linha.curso,
+    instituicao: linha.instituicao,
+    anoInicio: linha.anoInicio,
+    anoFim: linha.anoFim,
+    situacao: linha.situacao,
+    anexoUrl: linha.anexoUrl,
+    status: linha.status,
+    motivoRecusa: linha.motivoRecusa,
+    createdAt: linha.createdAt,
+    funcionarioNome: linha.nome,
+    fotoUrl: montarAvatarUrl(linha.userId, linha.avatarUrl),
+    iniciais: gerarIniciais(linha.nome),
+  }));
 }
 
 /**
@@ -163,6 +202,43 @@ export async function criarFormacao(
   const [linha] = await sql<FormacaoAcademica[]>`
     ${SELECT_FORMACAO(sql)} WHERE id = ${criada.id}
   `;
+  return linha;
+}
+
+/** Campos editáveis de uma formação — igual a FormacaoAcademicaInput, menos `anexoUrl` (tem endpoint próprio de anexo). */
+export type FormacaoAcademicaEdicaoInput = Omit<FormacaoAcademicaInput, "anexoUrl">;
+
+/**
+ * Atualiza os campos de uma formação já cadastrada. Quem já tinha sido
+ * decidida (APROVADO/RECUSADO) volta pra PENDENTE — o registro mudou, então
+ * precisa de uma nova análise do RH (mesma regra do upsert de idioma, ver
+ * criarOuAtualizarIdioma). `podeQualquer` = RH/Admin (senão, só o próprio
+ * dono — mesma convenção de salvarAnexoFormacao/excluirFormacao).
+ */
+export async function atualizarFormacao(
+  id: string,
+  userId: string,
+  input: FormacaoAcademicaEdicaoInput,
+  podeQualquer: boolean,
+): Promise<FormacaoAcademica | null> {
+  const sql = getDatabase();
+  const atualizado = podeQualquer
+    ? await sql`
+        UPDATE qualificacoes_academicas
+        SET nivel = ${input.nivel}, curso = ${input.curso}, instituicao = ${input.instituicao},
+            ano_inicio = ${input.anoInicio}, ano_fim = ${input.anoFim}, situacao = ${input.situacao},
+            status = 'PENDENTE', aprovado_por = NULL, decidido_em = NULL, motivo_recusa = NULL
+        WHERE id = ${id}
+      `
+    : await sql`
+        UPDATE qualificacoes_academicas
+        SET nivel = ${input.nivel}, curso = ${input.curso}, instituicao = ${input.instituicao},
+            ano_inicio = ${input.anoInicio}, ano_fim = ${input.anoFim}, situacao = ${input.situacao},
+            status = 'PENDENTE', aprovado_por = NULL, decidido_em = NULL, motivo_recusa = NULL
+        WHERE id = ${id} AND user_id = ${userId}
+      `;
+  if (atualizado.count === 0) return null;
+  const [linha] = await sql<FormacaoAcademica[]>`${SELECT_FORMACAO(sql)} WHERE id = ${id}`;
   return linha;
 }
 
@@ -334,11 +410,63 @@ export async function listCursosAprovados(
   }));
 }
 
-export async function listCursosPendentes(): Promise<CursoQualificacao[]> {
+/** Igual ao tipo base, mas com quem mandou e quando — ver comentário análogo em FormacaoAcademicaModeracao. */
+export interface CursoQualificacaoModeracao extends CursoQualificacao {
+  funcionarioNome: string;
+  fotoUrl: string;
+  iniciais: string;
+  createdAt: string;
+}
+
+interface LinhaCursoPendente {
+  id: string;
+  userId: string;
+  tipo: TipoCursoQualificacao;
+  nomeCurso: string;
+  instituicao: string;
+  cargaHoraria: number | null;
+  dataEmissao: string | null;
+  dataValidade: string | null;
+  certificadoUrl: string | null;
+  status: StatusQualificacao;
+  motivoRecusa: string | null;
+  nomeFuncionario: string;
+  avatarUrl: string | null;
+  createdAt: string;
+}
+
+export async function listCursosPendentes(): Promise<CursoQualificacaoModeracao[]> {
   const sql = getDatabase();
-  return sql<CursoQualificacao[]>`
-    ${SELECT_CURSO(sql)} WHERE status = 'PENDENTE' ORDER BY id
+  const linhas = await sql<LinhaCursoPendente[]>`
+    SELECT q.id, q.user_id AS "userId", q.tipo, q.nome AS "nomeCurso", q.instituicao,
+           q.carga_horaria AS "cargaHoraria",
+           to_char(q.data_emissao, 'YYYY-MM-DD') AS "dataEmissao",
+           to_char(q.data_validade, 'YYYY-MM-DD') AS "dataValidade",
+           q.certificado_url AS "certificadoUrl", q.status, q.motivo_recusa AS "motivoRecusa",
+           u.nome AS "nomeFuncionario", u.avatar_url AS "avatarUrl",
+           to_char(q.created_at, 'YYYY-MM-DD"T"HH24:MI:SS') AS "createdAt"
+    FROM qualificacoes_cursos q
+    JOIN users u ON u.id = q.user_id
+    WHERE q.status = 'PENDENTE'
+    ORDER BY q.created_at ASC
   `;
+  return linhas.map((linha) => ({
+    id: linha.id,
+    userId: linha.userId,
+    tipo: linha.tipo,
+    nome: linha.nomeCurso,
+    instituicao: linha.instituicao,
+    cargaHoraria: linha.cargaHoraria,
+    dataEmissao: linha.dataEmissao,
+    dataValidade: linha.dataValidade,
+    certificadoUrl: linha.certificadoUrl,
+    status: linha.status,
+    motivoRecusa: linha.motivoRecusa,
+    createdAt: linha.createdAt,
+    funcionarioNome: linha.nomeFuncionario,
+    fotoUrl: montarAvatarUrl(linha.userId, linha.avatarUrl),
+    iniciais: gerarIniciais(linha.nomeFuncionario),
+  }));
 }
 
 /** Um curso/workshop/certificação por id, qualquer status. `null` se não existir. */
@@ -521,11 +649,44 @@ export async function listIdiomasAprovados(userId: string): Promise<IdiomaPublic
   }));
 }
 
-export async function listIdiomasPendentes(): Promise<Idioma[]> {
+/** Igual ao tipo base, mas com quem mandou e quando — ver comentário análogo em FormacaoAcademicaModeracao. */
+export interface IdiomaModeracao extends Idioma {
+  funcionarioNome: string;
+  fotoUrl: string;
+  iniciais: string;
+  createdAt: string;
+}
+
+export async function listIdiomasPendentes(): Promise<IdiomaModeracao[]> {
   const sql = getDatabase();
-  return sql<Idioma[]>`
-    ${SELECT_IDIOMA(sql)} WHERE status = 'PENDENTE' ORDER BY id
+  const linhas = await sql<
+    (Idioma & { nome: string; avatarUrl: string | null; createdAt: string })[]
+  >`
+    SELECT q.id, q.user_id AS "userId", q.idioma, q.nivel_cefr AS "nivelCefr",
+           q.origem_avaliacao AS "origemAvaliacao",
+           to_char(q.avaliado_em, 'YYYY-MM-DD') AS "avaliadoEm",
+           q.status, q.motivo_recusa AS "motivoRecusa",
+           u.nome, u.avatar_url AS "avatarUrl",
+           to_char(q.created_at, 'YYYY-MM-DD"T"HH24:MI:SS') AS "createdAt"
+    FROM qualificacoes_idiomas q
+    JOIN users u ON u.id = q.user_id
+    WHERE q.status = 'PENDENTE'
+    ORDER BY q.created_at ASC
   `;
+  return linhas.map((linha) => ({
+    id: linha.id,
+    userId: linha.userId,
+    idioma: linha.idioma,
+    nivelCefr: linha.nivelCefr,
+    origemAvaliacao: linha.origemAvaliacao,
+    avaliadoEm: linha.avaliadoEm,
+    status: linha.status,
+    motivoRecusa: linha.motivoRecusa,
+    createdAt: linha.createdAt,
+    funcionarioNome: linha.nome,
+    fotoUrl: montarAvatarUrl(linha.userId, linha.avatarUrl),
+    iniciais: gerarIniciais(linha.nome),
+  }));
 }
 
 /** Um idioma por id, qualquer status. `null` se não existir. */

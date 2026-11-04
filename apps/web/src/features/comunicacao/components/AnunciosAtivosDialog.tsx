@@ -10,6 +10,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog'
+import { cn } from '@/lib/utils'
 
 import { comunicacaoService } from '../services'
 import type { Comunicado, DiaSemana } from '../types'
@@ -43,10 +44,12 @@ function formatarPeriodo(comunicado: Comunicado): string {
 interface AnunciosAtivosDialogProps {
   /** Chamado depois de remover um comunicado (ex.: recarregar o mural da Home). */
   onRemovido?: () => void
+  /** Classe extra no botão-gatilho (ex.: `flex-1` na linha mobile da Home). */
+  className?: string
 }
 
 /** Dialog com todos os comunicados ativos no momento, com período e opção de remover (RH). */
-export function AnunciosAtivosDialog({ onRemovido }: AnunciosAtivosDialogProps) {
+export function AnunciosAtivosDialog({ onRemovido, className }: AnunciosAtivosDialogProps) {
   const [aberto, setAberto] = useState(false)
   const [ativos, setAtivos] = useState<Comunicado[]>([])
   const [carregando, setCarregando] = useState(true)
@@ -84,9 +87,10 @@ export function AnunciosAtivosDialog({ onRemovido }: AnunciosAtivosDialogProps) 
   return (
     <Dialog open={aberto} onOpenChange={setAberto}>
       <DialogTrigger asChild>
-        <Button size="sm" variant="outline">
-          <ListChecks className="mr-2 h-4 w-4" />
-          Anúncios ativos
+        <Button size="sm" variant="outline" className={cn(className)}>
+          <ListChecks className="h-4 w-4 sm:mr-2" />
+          <span className="hidden sm:inline">Anúncios ativos</span>
+          <span className="sm:hidden">Ativos</span>
         </Button>
       </DialogTrigger>
 

@@ -1,4 +1,4 @@
-import type { ReactNode } from "react"
+import { useEffect, type ReactNode } from "react"
 
 import {
   SidebarInset,
@@ -49,6 +49,12 @@ export function AppLayout({
   fillHeight = false,
 }: AppLayoutProps) {
   const { open, setOpen } = useTabletSidebar()
+
+  // Título da aba do navegador — toda tela autenticada passa por aqui (só o
+  // /login, que não usa AppLayout, define o próprio título).
+  useEffect(() => {
+    document.title = title ? `IntegraRH · ${title}` : "IntegraRH"
+  }, [title])
 
   return (
     <SidebarProvider open={open} onOpenChange={setOpen}>

@@ -136,9 +136,16 @@ export function AvatarUploader({
   return (
     <>
       {withActions ? (
-        <div className="flex items-center gap-4">
+        // w-24 trava a largura desta coluna na largura da própria foto
+        // (mesma medida do avatarButton, h-24 w-24) — sem isso, a coluna
+        // cresce pra caber a linha de botões (mais larga que a foto, com os
+        // dois lado a lado) e a foto fica "flutuando" numa caixa maior que
+        // ela, com um vácuo visível à direita. Com a largura travada, os
+        // botões só transbordam visualmente pra fora da coluna (sem
+        // overflow-hidden) — não tem ninguém mais naquela altura pra colidir.
+        <div className="flex w-24 flex-col items-start gap-2">
           {avatarButton}
-          <div className="flex flex-col items-start gap-2">
+          <div className="flex items-center gap-2">
             <Button
               type="button"
               size="sm"
