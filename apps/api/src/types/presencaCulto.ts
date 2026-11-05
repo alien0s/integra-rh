@@ -155,7 +155,7 @@ export const ANEXO_MIMES_PERMITIDOS = [
   'image/webp',
   'image/heic',
 ]
-export const ANEXO_TAMANHO_MAXIMO = 10 * 1024 * 1024 // 10 MB
+export const ANEXO_TAMANHO_MAXIMO = 5 * 1024 * 1024 // 5 MB (mesmo limite do multipart no app.ts)
 export const ANEXO_PASTA_MINIO = 'presenca-culto'
 
 // -----------------------------------------------------------------------------
@@ -224,6 +224,13 @@ export interface PeriodoPremiacao {
 export interface SetorSuperior {
   setor_id: string
   superior_id: string
+  atualizado_por: string | null
+  atualizado_em: string
+}
+
+export interface EntidadeAssistente {
+  entity_id: string
+  assistente_id: string
   atualizado_por: string | null
   atualizado_em: string
 }

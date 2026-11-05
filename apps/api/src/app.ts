@@ -15,6 +15,7 @@ import { getApiConfig } from "./plugins/env.js";
 import { microsoftOAuthPlugin } from "./plugins/microsoft-oauth.js";
 import { authRoutes } from "./routes/auth.routes.js";
 import { comunicacaoRoutes } from "./routes/comunicacao.routes.js";
+import { presencaCultoRoutes } from "./routes/presencaCulto.routes.js";
 import { feriadosRoutes } from "./routes/feriados.routes.js";
 import { feriasRoutes } from "./routes/ferias.routes.js";
 import { vrRoutes} from "./routes/vr.routes.js";
@@ -111,6 +112,10 @@ export function buildApp() {
         {
           name: "Comunicação",
           description: "Avisos e campanhas internas, com fluxo de aprovação do RH."
+        },
+        {
+          name: "Presença no Culto",
+          description: "Registro de presença no culto, justificativas com aprovação (líder -> RH), calendário, ajustes manuais e ranking de aproveitamento."
         },
         {
           name: "Logs",
@@ -275,6 +280,7 @@ export function buildApp() {
   app.register(notificacoesRoutes);
   app.register(qualificacoesRoutes);
   app.register(comunicacaoRoutes);
+  app.register(presencaCultoRoutes);
   app.register(logsRoutes);
 
   iniciarJobsComunicacao();
